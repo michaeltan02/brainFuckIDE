@@ -19,9 +19,9 @@ int main(void)
     char instruction [4096];    //this should be a good enough buffer size
     printf("Awaiting Instructions (? for breakpoints): \n");
     bool firstOut = true;
+    bool problemEncountered = false;
     if (fgets(instruction, 4096, stdin) != NULL) {  //It's only null if eof
         //remember that fgets actually include \n as a character when it creates the string
-        
         char *data_ptr = data_array;    
         int inst_ptr = 0;
 
@@ -56,9 +56,16 @@ int main(void)
                     inst_ptr++;
                     break;
                 case '<':
+                    if(data_ptr > data_array){
+                        data_ptr--;    
+                        inst_ptr++;
+                    }
+                    else{
+                        printf ("Illegal access Denied -- Attempt to decrement data pointer out of array.\n");
+                        problemEncountered = true;
+                    }
+                        
                     
-                    data_ptr--;     //create a system so user cannot go out of bound
-                    inst_ptr++;
                     break;
                 case '+':
                     ++*data_ptr;
@@ -115,6 +122,10 @@ int main(void)
                     inst_ptr++;
                     break;
             }
+
+            if(problemEncountered)
+                break;
+
             if (stepBystep && !steppingOut){
                 printf("Paused at \n%s", instruction);
                 for (int i = 0; i < inst_ptr; i++)
@@ -146,7 +157,15 @@ int main(void)
             }
         }
         
-        printf("\nCode finished. Array updated. \n");
+        if(!problemEncountered){
+            printf("\nCode finished. Array updated. \n"); 
+        }
+        else{
+            printf("\nProblem encountered. Execution failed at:\n%s", instruction);
+                for (int i = 0; i < inst_ptr; i++)
+                    printf(" ");
+                printf("^ \nArray end condition:\n");
+        }
         printDataArray(data_array, data_ptr, 10);
     }
 	printf("Press any key to quit.");
