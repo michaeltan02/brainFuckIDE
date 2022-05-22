@@ -3,7 +3,8 @@
 #include <stdbool.h>
 #include <string.h>
 
-
+#define printAmount     10
+#define maxOutput       2048    
 
 
 void printDataArray(char * array, char * data_ptr, int amount);   
@@ -13,22 +14,27 @@ int main(void)
     char data_array[30000] = {0}; 
     char *data_ptr = data_array;
     printf("Array initialized \n");
-    printDataArray(data_array, data_ptr, 10);
+    printDataArray(data_array, data_ptr, printAmount);
+    
+    //extra variables
+    bool firstOut = true;
+    bool problemEncountered = false;
+    bool debugMode = false, stepBystep = false, validInput = false, inALoop = false, steppingOut = false;
+    char userInput =0; 
+    int inst_ptr = 0;
+    char outputStr[maxOutput] = {0};
+    int outputLength =0;
+    bool tempOutputStrSoln = false;
+    int loopCount = 0;
 
     //get commands from user
     char instruction [4096];    //this should be a good enough buffer size
     printf("Awaiting Instructions (? for breakpoints): \n");
-    bool firstOut = true;
-    bool problemEncountered = false;
     if (fgets(instruction, 4096, stdin) != NULL) {  //It's only null if eof
-        //remember that fgets actually include \n as a character when it creates the string
-        char *data_ptr = data_array;    
-        int inst_ptr = 0;
+        //remember that fgets actually include \n as a character when it creates the string  
 
         //process if the user want debug mode
         printf("Debug or Execute? (d/e) \n");
-        bool debugMode = false, stepBystep = false, validInput = false, inALoop = false, steppingOut = false;
-        char userInput =0; 
         while(!validInput){
             //scanf(" %c", &userInput);    //holy shit C's scanf take in the \n. 
             userInput = getchar();
@@ -48,12 +54,18 @@ int main(void)
             }  
         }
         
-        //interpret instructions
+        //Brainfuck interpreter
         while (instruction[inst_ptr] != '\0' && instruction[inst_ptr] != '\n'){
             switch(instruction[inst_ptr]){
                 case '>':
-                    data_ptr++;
-                    inst_ptr++;
+                    if(data_ptr < (data_array+30000-1)){
+                        data_ptr++;    
+                        inst_ptr++;
+                    }
+                    else{
+                        printf ("Illegal access Denied -- Attempt to increment data pointer out of array.\n");
+                        problemEncountered = true;
+                    }
                     break;
                 case '<':
                     if(data_ptr > data_array){
@@ -64,8 +76,6 @@ int main(void)
                         printf ("Illegal access Denied -- Attempt to decrement data pointer out of array.\n");
                         problemEncountered = true;
                     }
-                        
-                    
                     break;
                 case '+':
                     ++*data_ptr;
@@ -76,19 +86,35 @@ int main(void)
                     inst_ptr++;
                     break;
                 case '.':
-                    if(firstOut){   //for now, store output in a string so it shows up properly in debug mode. After text editor, 
-                                    //upgrade it to store output in a file (cuz C doesn't have automtiac memory safe string concatenation)
-                        printf("Output: ");
-                        firstOut = false;
+                    if(!debugMode){ 
+                        if(firstOut){   
+                            printf("Output: ");
+                            firstOut = false;
+                        }
+                        printf("%c", *data_ptr);
                     }
-                    printf("%c", *data_ptr);
+                    else{
+                        if(outputLength < (maxOutput - 1)){
+                            strncat(outputStr, data_ptr,1);
+                            //printf("Output: %s\n", outputStr);
+                            outputLength++;
+                        }
+                        else{   //look into a way to do safe string concatenation instead
+                            outputStr[0] = '\0';    //this is clever
+                            outputLength =0;
+                            tempOutputStrSoln = true;
+                        }
+                    }
                     inst_ptr++;
                     break;
                 case ',':
-                    printf("Entering input here: \n%s", instruction);   //shows user which , they are entering intput for
-                    for (int i = 0; i < inst_ptr; i++)
+                    printf("Entering input for below\n%s", instruction);   //shows user which , they are entering intput for
+                    for (int i = 0; i < inst_ptr; i++){
                         printf(" ");
+                    }
                     printf("^\n");
+                    printDataArray(data_array, data_ptr, printAmount);
+                    printf("Your input: ");
                     *data_ptr = getchar();
                     fflush(stdin);
                     inst_ptr++;
@@ -105,10 +131,12 @@ int main(void)
                 case ']':
                     if(*data_ptr){
                         while(instruction[inst_ptr] != '[') inst_ptr--;
+                        if(debugMode) loopCount++;
                     }
                     else{
 						inALoop = false;
 						steppingOut = false;
+                        loopCount = 0;
                         inst_ptr++;
                     }
                     break;
@@ -125,15 +153,31 @@ int main(void)
 
             if(problemEncountered)
                 break;
+            
+            //protection against infinite loop
+            if (loopCount > 10000){
+                printf ("Warning -- A loop has executed 10000 times.\n");
+                stepBystep = true;
+                steppingOut = false;
+            }
 
+            //only for debug mode
             if (stepBystep && !steppingOut){
                 printf("Paused at \n%s", instruction);
                 for (int i = 0; i < inst_ptr; i++)
                     printf(" ");
-                printf("^ \nCurrent array \n");
-                printDataArray(data_array, data_ptr, 10);
+                printf("^ \n");
+                if(tempOutputStrSoln){
+                    printf("Max output length reached. Oldder output will be hidden\nCurrent output: ...");
+                }
+                else{
+                    printf("Current output: ");
+                }
+                printf("%s\n", outputStr);
+                printf("Current array \n");
+                printDataArray(data_array, data_ptr, printAmount);
 
-                //for if the user want out of debug mode
+                //check if the user want out of debug mode
 				do{
                     if (!inALoop)
                         printf("Press Enter to Step into; press c to Continue.\n");
@@ -157,17 +201,23 @@ int main(void)
             }
         }
         
+        //final output
         if(!problemEncountered){
-            printf("\nCode finished. Array updated. \n"); 
+            printf("\nCode finished sucessfully.\n"); 
         }
         else{
             printf("\nProblem encountered. Execution failed at:\n%s", instruction);
                 for (int i = 0; i < inst_ptr; i++)
                     printf(" ");
-                printf("^ \nArray end condition:\n");
+                printf("^ \n");
         }
-        printDataArray(data_array, data_ptr, 10);
+        if(debugMode){
+            printf("Final output: %s\n", outputStr);
+        }
+        printf("Final array:\n");
+        printDataArray(data_array, data_ptr, printAmount);
     }
+
 	printf("Press any key to quit.");
 	getchar();
 	return 0;
@@ -176,7 +226,7 @@ int main(void)
 
 void printDataArray(char * array, char * data_ptr, int amount){
     printf("Character version:\n");
-    for(int i=0; i<amount; i++){
+    for(int i=0; i<amount; i++){    //do some check before printing the character, just be a bit smater
 		printf("  ");
 		printf("%c|", array[i]);
     }
