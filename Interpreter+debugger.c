@@ -3,16 +3,18 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define printAmount     10
-#define maxOutput       2048    
+#define printAmount                 10
+#define strExpansionIncrement       2048    
 
 
-void printDataArray(char * array, char * data_ptr, int amount);   
+void printDataArray(unsigned char * array, unsigned char * data_ptr, int amount);   
+void specialPrint (unsigned char character);
+
 int main(void)
 {
     //the data array
-    char data_array[30000] = {0}; 
-    char *data_ptr = data_array;
+    unsigned char data_array[30000] = {0}; 
+    unsigned char *data_ptr = data_array;
     printf("Array initialized \n");
     printDataArray(data_array, data_ptr, printAmount);
     
@@ -22,10 +24,11 @@ int main(void)
     bool debugMode = false, stepBystep = false, validInput = false, inALoop = false, steppingOut = false;
     char userInput =0; 
     int inst_ptr = 0;
-    char outputStr[maxOutput] = {0};
-    int outputLength =0;
-    bool tempOutputStrSoln = false;
     int loopCount = 0;
+
+    unsigned char * outputStr = (unsigned char *) calloc (strExpansionIncrement+1, sizeof (unsigned char));
+    int outputMaxCapacity = strExpansionIncrement; 
+    int outputCurLength =0;
 
     //get commands from user
     char instruction [4096];    //this should be a good enough buffer size
@@ -94,16 +97,31 @@ int main(void)
                         printf("%c", *data_ptr);
                     }
                     else{
-                        if(outputLength < (maxOutput - 1)){
-                            strncat(outputStr, data_ptr,1);
-                            //printf("Output: %s\n", outputStr);
-                            outputLength++;
+                        if(outputCurLength >= outputMaxCapacity){
+                            int newSize = outputMaxCapacity + strExpansionIncrement + 1;
+                            unsigned char * temp = (unsigned char *) realloc (outputStr, newSize);
+                            //unsigned char* temp = NULL;   //for testing the file version
+                            if(temp == NULL){
+                                printf ("Problem encountered -- Cannot allocate more memory to store output.\nThe following will be dumped to Output.txt\n%s\nOutput string reset.\n", outputStr);
+                                FILE *out_file = fopen("Output.txt", "a");
+                                if(out_file == NULL){
+                                    printf("Problem encountered -- cannot open file.\n");
+                                    problemEncountered = true;
+                                }
+                                fprintf(out_file, "%s\n\n", outputStr); 
+                                fclose(out_file);
+                                outputStr[0] = '\0';
+                                strcat(outputStr, "...");
+                                outputCurLength = 3;
+                            }
+                            else{
+                                outputStr = temp;
+                                outputMaxCapacity += strExpansionIncrement;
+                            }
+                            
                         }
-                        else{   //look into a way to do safe string concatenation instead
-                            outputStr[0] = '\0';    //this is clever
-                            outputLength =0;
-                            tempOutputStrSoln = true;
-                        }
+                        strncat(outputStr, data_ptr,1);
+                        outputCurLength++;
                     }
                     inst_ptr++;
                     break;
@@ -159,6 +177,7 @@ int main(void)
                 printf ("Warning -- A loop has executed 10000 times.\n");
                 stepBystep = true;
                 steppingOut = false;
+                loopCount = 0;
             }
 
             //only for debug mode
@@ -167,14 +186,9 @@ int main(void)
                 for (int i = 0; i < inst_ptr; i++)
                     printf(" ");
                 printf("^ \n");
-                if(tempOutputStrSoln){
-                    printf("Max output length reached. Oldder output will be hidden\nCurrent output: ...");
-                }
-                else{
-                    printf("Current output: ");
-                }
+                printf("Current output: ");
                 printf("%s\n", outputStr);
-                printf("Current array \n");
+                printf("Current array: \n");
                 printDataArray(data_array, data_ptr, printAmount);
 
                 //check if the user want out of debug mode
@@ -220,19 +234,24 @@ int main(void)
 
 	printf("Press any key to quit.");
 	getchar();
+    free(outputStr);
 	return 0;
 }
 
 
-void printDataArray(char * array, char * data_ptr, int amount){
-    printf("Character version:\n");
+void printDataArray(unsigned char * array, unsigned char * data_ptr, int amount){
+    printf("Character version\n");
     for(int i=0; i<amount; i++){    //do some check before printing the character, just be a bit smater
-		printf("  ");
-		printf("%c|", array[i]);
+        if(array[i]>31 && array[i] < 127){
+            printf("  %c|", array[i]);
+        }
+        else{
+            specialPrint(array[i]);
+        }
     }
-    printf("\nInteger version:\n");
+    printf("\nInteger version\n");
     for(int i=0; i<amount; i++){
-            printf("%3d|", (int) array[i]);
+            printf("%3d|", array[i]);
     }
     printf("\n");
     int locationInArray = (int) (data_ptr - array);
@@ -241,3 +260,112 @@ void printDataArray(char * array, char * data_ptr, int amount){
     printf("  ^\n");
 }
 
+
+
+void specialPrint (unsigned char character){
+    switch(character){
+        case 0:
+            printf("   ");
+            break;
+        case 1:
+            printf("SOH");
+            break;
+        case 2:
+            printf("STX");
+            break;
+        case 3:
+            printf("ETX");
+            break;
+        case 4:
+            printf("EOT");
+            break;
+        case 5:
+            printf("ENQ");
+            break;
+        case 6:
+            printf("ACK");
+            break;
+        case 7:
+            printf("BEL");
+            break;
+        case 8:
+            printf(" BS");
+            break;
+        case 9:
+            printf(" HT");
+            break;
+        case 10:
+            printf(" LF");
+            break;
+        case 11:
+            printf(" VT");
+            break;
+        case 12:
+            printf(" FF");
+            break;
+        case 13:
+            printf(" CR");
+            break;
+        case 14:
+            printf(" SO");
+            break;
+        case 15:
+            printf(" SI");
+            break;
+        case 16:
+            printf("DLE");
+            break;
+        case 17:
+            printf("DC1");
+            break;
+        case 18:
+            printf("DC2");
+            break;
+        case 19:
+            printf("DC3");
+            break;
+        case 20:
+            printf("DC4");
+            break;
+        case 21:
+            printf("NAK");
+            break;
+        case 22:
+            printf("SYN");
+            break;
+        case 23:
+            printf("ETB");
+            break;
+        case 24:
+            printf("CAN");
+            break;
+        case 25:
+            printf(" EM");
+            break;
+        case 26:
+            printf("SUB");
+            break;
+        case 27:
+            printf("ESC");
+            break;
+        case 28:
+            printf(" FS");
+            break;
+        case 29:
+            printf(" GS");
+            break;
+        case 30:
+            printf(" RS");
+            break;
+        case 31:
+            printf(" US");
+            break;
+        case 127:
+            printf("DEL");
+            break;
+        default:
+            printf("   ");
+            break;
+    }
+    printf("|");
+}
