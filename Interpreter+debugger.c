@@ -30,6 +30,11 @@ int main(void)
     int outputMaxCapacity = strExpansionIncrement; 
     int outputCurLength =0;
 
+    //initialize the output dump folder
+    FILE *out_file = fopen("Output.txt", "w");
+    fprintf(out_file, "%s\n", "Output will be dumped here if more memory cannot be allocated"); 
+    fclose(out_file);
+
     //get commands from user
     char instruction [4096];    //this should be a good enough buffer size
     printf("Awaiting Instructions (? for breakpoints): \n");
@@ -103,7 +108,7 @@ int main(void)
                             //unsigned char* temp = NULL;   //for testing the file version
                             if(temp == NULL){
                                 printf ("Problem encountered -- Cannot allocate more memory to store output.\nThe following will be dumped to Output.txt\n%s\nOutput string reset.\n", outputStr);
-                                FILE *out_file = fopen("Output.txt", "a");
+                                out_file = fopen("Output.txt", "a");
                                 if(out_file == NULL){
                                     printf("Problem encountered -- cannot open file.\n");
                                     problemEncountered = true;
