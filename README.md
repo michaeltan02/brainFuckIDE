@@ -37,6 +37,10 @@ Some features specific to brainfuck:
     2. Text geneator  ----------------------- IN PROGRESS
     
     3. Inclusion of example programs  ------- IN PROGRESS
+    
+    4. Code compressor  --------------------- IN PROGRESS
+    
+    5. Ability to change data array type  --- IN PROGRESS
 
 
 
