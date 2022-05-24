@@ -1,6 +1,6 @@
-# brainFuckIDE
+# Brain Fuck IDE
 A terminal-based brainfuck IDE made in C. 
-Why C as opposed to C++? It's because I haveplans to port it to at least DE1-SoC (running ARM assembly), and game consoles such as NDS and the GameBoy.
+Why C as opposed to C++? It's because I plan to port it to at least DE1-SoC (running ARM assembly), and hopefully game consoles such as NDS and the GameBoy!
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Brainfuck Introduction
@@ -17,7 +17,8 @@ To be considered an IDE, a program needs to have at least 3 things:
         * Supports original the 8 operators for brainfuck, ignores all other characters
         * Stops execution if user tries to go outside or memory array
         * Stores user output in a string that dynamically increase in size when needed (alos dumps output in a .txt file if memory cannot be allocated)
-        > Plans to support shortcuts of letters and numbers.
+        > Plans to support shortcuts of letters and numbers
+        > Plans to include options to output assembly/machine code
         
     2. Debugger  --------------------------   COMPLETE
         * Step-by-step execution (shows which step the user is on)
@@ -35,7 +36,7 @@ Some features specific to brainfuck:
     
     2. Text geneator  ----------------------- IN PROGRESS
     
-    3. Inclusion of example programS  ------- IN PROGRESS
+    3. Inclusion of example programs  ------- IN PROGRESS
 
 
 
