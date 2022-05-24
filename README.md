@@ -29,6 +29,7 @@ To be considered an IDE, a program needs to have at least 3 things:
     3. Text editor  -----------------------   IN PROGRESS
         * Currently, the user get one chance to type the program, which will be scanned by fget
         > Plans to add save/load of program on computer, and the ability to go back to the text editor after execution
+        > Plans to add syntax highlighting
         
 Some features specific to brainfuck:
 
