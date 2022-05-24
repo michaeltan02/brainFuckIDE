@@ -45,4 +45,8 @@ Some features specific to brainfuck:
 
 
 
-
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Brianfuck Implementation Choices
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+- Array is made of the traditional 30000 8-bit unsigned integer cells
+- Choice of character set when outputing extended ASCII depend entirely on your operating system settings. On a computer with system locale set to English (United States), the windows terminal defauls to the Code page 437 character set. 
