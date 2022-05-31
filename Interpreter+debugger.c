@@ -9,13 +9,27 @@
 
 void printDataArray(unsigned char * array, unsigned char * data_ptr, int amount);   
 void specialPrint (unsigned char character);
+void cleanStdin (void);
+void syntaxHighLightPrint (char* inst);    
+
+void red() {printf("\033[0;31m");}
+void redBold(){printf("\033[1;31m");}
+void green() {printf("\033[0;32m");}
+void yellow() {printf("\033[0;33m");}
+void blue() {printf("\033[0;34m");}
+void purple() {printf("\033[0;35m");}
+void cyan() {printf("\033[0;36m");}
+void white(){printf("\033[0;37m");}
+void bold(){printf("\033[1;37m");}
+void resetColour () {printf("\033[0m");}
 
 int main(void)
 {
     //the data array
     unsigned char data_array[30000] = {0}; 
     unsigned char *data_ptr = data_array;
-    printf("Array initialized \n");
+    green();    printf("Array initialized \n");
+    resetColour();
     printDataArray(data_array, data_ptr, printAmount);
     
     //extra variables
@@ -37,29 +51,33 @@ int main(void)
 
     //get commands from user
     char instruction [4096];    //this should be a good enough buffer size
-    printf("Awaiting Instructions (? for breakpoints): \n");
+    yellow();    printf("Awaiting Instructions (? for breakpoints): \n");
+    resetColour();
     if (fgets(instruction, 4096, stdin) != NULL) {  //It's only null if eof
         //remember that fgets actually include \n as a character when it creates the string  
 
         //process if the user want debug mode
-        printf("Debug or Execute? (d/e) \n");
+        bold();    printf("Debug or Execute? (d/e) \n");
+        resetColour();
         while(!validInput){
             //scanf(" %c", &userInput);    //holy shit C's scanf take in the \n. 
             userInput = getchar();
-            fflush(stdin);
+            //fflush(stdin);    //this actually isn't defined
+            cleanStdin();
             if (userInput == 'd' || userInput == 'D'){
                 debugMode = true;
                 validInput = true;
-                printf("Entered Debug mode.\n");
+                green();    printf("Entered Debug mode.\n");
             }
             else if (userInput == 'e' || userInput == 'E'){
                 debugMode = false;
                 validInput = true;
-                printf("Normal Execution.\n");
+                green();    printf("Normal Execution.\n");
             } 
             else{
-                printf("Invalid input. Try again.\n");
+                red();  printf("Invalid input. Try again.\n");
             }  
+            resetColour();
         }
         
         //Brainfuck interpreter
@@ -71,7 +89,7 @@ int main(void)
                         inst_ptr++;
                     }
                     else{
-                        printf ("Illegal access Denied -- Attempt to increment data pointer out of array.\n");
+                        red();  printf ("Illegal access Denied -- Attempt to increment data pointer out of array.\n");
                         problemEncountered = true;
                     }
                     break;
@@ -81,7 +99,7 @@ int main(void)
                         inst_ptr++;
                     }
                     else{
-                        printf ("Illegal access Denied -- Attempt to decrement data pointer out of array.\n");
+                        red();  printf ("Illegal access Denied -- Attempt to decrement data pointer out of array.\n");
                         problemEncountered = true;
                     }
                     break;
@@ -107,12 +125,14 @@ int main(void)
                             unsigned char * temp = (unsigned char *) realloc (outputStr, newSize);
                             //unsigned char* temp = NULL;   //for testing the file version
                             if(temp == NULL){
+                                red();
                                 printf ("Problem encountered -- Cannot allocate more memory to store output.\nThe following will be dumped to Output.txt\n%s\nOutput string reset.\n", outputStr);
                                 out_file = fopen("Output.txt", "a");
                                 if(out_file == NULL){
                                     printf("Problem encountered -- cannot open file.\n");
                                     problemEncountered = true;
                                 }
+                                resetColour();
                                 fprintf(out_file, "%s\n\n", outputStr); 
                                 fclose(out_file);
                                 outputStr[0] = '\0';
@@ -131,15 +151,18 @@ int main(void)
                     inst_ptr++;
                     break;
                 case ',':
-                    printf("Entering input for below\n%s", instruction);   //shows user which , they are entering intput for
+                    bold();   printf("Entering input for below\n");
+                    resetColour();
+                    //printf("%s", instruction);   //shows user which , they are entering intput for
+                    syntaxHighLightPrint(instruction);
                     for (int i = 0; i < inst_ptr; i++){
                         printf(" ");
                     }
                     printf("^\n");
                     printDataArray(data_array, data_ptr, printAmount);
-                    printf("Your input: ");
+                    yellow();   printf("Your input: ");
                     *data_ptr = getchar();
-                    fflush(stdin);
+                    resetColour();  cleanStdin();
                     inst_ptr++;
                     break;
                 case '[':
@@ -172,6 +195,7 @@ int main(void)
                 default:
                     inst_ptr++;
                     break;
+                //consider adding something to skip over comments
             }
 
             if(problemEncountered)
@@ -179,7 +203,8 @@ int main(void)
             
             //protection against infinite loop
             if (loopCount > 10000){
-                printf ("Warning -- A loop has executed 10000 times.\n");
+                red();  printf ("Warning -- A loop has executed 10000 times.\n");
+                resetColour();
                 stepBystep = true;
                 steppingOut = false;
                 loopCount = 0;
@@ -187,33 +212,47 @@ int main(void)
 
             //only for debug mode
             if (stepBystep && !steppingOut){
-                printf("Paused at \n%s", instruction);
+                green();   printf("Paused at \n");
+                resetColour();
+                //printf("%s", instruction);
+                syntaxHighLightPrint(instruction);
                 for (int i = 0; i < inst_ptr; i++)
                     printf(" ");
                 printf("^ \n");
-                printf("Current output: ");
+                bold(); printf("Current output: ");
+                resetColour();
                 printf("%s\n", outputStr);
-                printf("Current array: \n");
+                bold(); printf("Current array: \n");
+                resetColour();
                 printDataArray(data_array, data_ptr, printAmount);
 
                 //check if the user want out of debug mode
 				do{
+                    bold();
                     if (!inALoop)
-                        printf("Press Enter to Step into; press c to Continue.\n");
+                        printf("Press Enter to Step into; c to Continue.\n");
                     else
-                        printf("Press Enter to Step into; press c to Continue; press s to Step out.\n");
+                        printf("Press Enter to Step into; c to Continue; s to Step out.\n");
 
+                    //consider adding a quit button
+                    
+                    resetColour();
                     validInput = true;  //assumption
                     userInput = getchar();
-                    fflush(stdin);
-                    if (userInput == 'c' || userInput == 'C')
+                    if (userInput == 'c' || userInput == 'C'){
                         stepBystep = false;
-                    else if (userInput == '\n')
+                        cleanStdin();
+                    }
+                    else if (userInput == '\n'){
                         stepBystep = true;
-                    else if ((userInput == 's' || userInput == 'S') && inALoop)
+                    }
+                    else if ((userInput == 's' || userInput == 'S') && inALoop){
                         steppingOut = true;
+                        cleanStdin();
+                    }
                     else{
                         validInput = false;
+                        cleanStdin();
                         printf("Invalid input. Try again.\n");
                     }
                 }while(!validInput);
@@ -222,18 +261,24 @@ int main(void)
         
         //final output
         if(!problemEncountered){
-            printf("\nCode finished sucessfully.\n"); 
+            green();    printf("\nCode finished sucessfully.\n"); 
         }
         else{
-            printf("\nProblem encountered. Execution failed at:\n%s", instruction);
-                for (int i = 0; i < inst_ptr; i++)
-                    printf(" ");
-                printf("^ \n");
+            red();  printf("\nProblem encountered. Execution failed at:\n");
+            resetColour();
+            //printf("%s", instruction);
+            syntaxHighLightPrint(instruction);
+            for (int i = 0; i < inst_ptr; i++)
+                printf(" ");
+            printf("^ \n");
         }
         if(debugMode){
-            printf("Final output: %s\n", outputStr);
+            green();    printf("Final output: ");
+            resetColour();
+            printf("%s\n", outputStr);
         }
-        printf("Final array:\n");
+        bold(); printf("Final array:\n");
+        resetColour();
         printDataArray(data_array, data_ptr, printAmount);
     }
 
@@ -265,7 +310,44 @@ void printDataArray(unsigned char * array, unsigned char * data_ptr, int amount)
     printf("  ^\n");
 }
 
+void syntaxHighLightPrint (char* inst){
+    for(int i =0; inst[i]!= '\0'; i++){
+        switch(inst[i]){
+            case '>':
+            case '<':
+                cyan();
+                break;
+            case '+':
+            case '-':
+                white();
+                break;
+            case '.':
+            case ',':
+                purple();
+                break;
+            case '[':
+            case ']':
+                yellow();
+                break;
+            case '?':
+                red();
+                break;
+            default:
+                blue();
+                break;
+        }
+        putchar(inst[i]);
+    }
+    resetColour();
+    //putchar('\n');    //assuming there is a \n at the end of string
+}
 
+void cleanStdin(void){
+    char temp;
+    do{
+        temp = getchar();
+    }while (temp != '\n' && temp != EOF);
+}
 
 void specialPrint (unsigned char character){
     switch(character){
