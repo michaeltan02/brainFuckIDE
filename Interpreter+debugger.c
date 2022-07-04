@@ -194,6 +194,10 @@ int main(void)
                     break;
                 default:
                     inst_ptr++;
+                    char nextChar = instruction[inst_ptr];
+                    if (nextChar!= '+' && nextChar!= '-' && nextChar!= '>' && nextChar!= '<' &&
+                        nextChar!= '.' && nextChar!= ',' && nextChar!= '[' && nextChar!= ']')
+                        continue;
                     break;
                 //consider adding something to skip over comments
             }
