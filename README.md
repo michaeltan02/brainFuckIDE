@@ -17,6 +17,7 @@ To be considered an IDE, a program needs to have at least 3 things integrated (*
         * Stops execution if user tries to go outside or memory array
         * Display output in its own section, using a custom dynamic struct
         * Displays changes to the memory array
+        * Highlights current instruction and data cell
         
     2. Debugger  --------------------------   COMPLETE
         * Step-by-step execution (shows which step the user is on)
