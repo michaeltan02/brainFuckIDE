@@ -20,7 +20,7 @@
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 
-#define MICHAEL_IDE_VER "0.02"
+#define MICHAEL_IDE_VER "0.5"
 #define TAB_STOP 4
 #define QUIT_TIMES 2
 
@@ -66,9 +66,9 @@ enum mode {
 //data
 typedef struct erow {
     int size;
-    char * chars;
+    char* chars;
     int rsize;
-    char * render;
+    char* render;
 } erow;
 
 #define COORD_INIT {0, 0}
@@ -80,28 +80,53 @@ typedef struct windowConfig {
     int numRows;
     int numCols;
     int rowOff, colOff;
+    erow* row; //dynamic array
 } windowConfig;
 
-//config
-struct editorConfig {
+//window
+void resetWindow(windowConfig* this);
+void windowInsertRow(int at, char*s, size_t len, windowConfig* this);
+void windowInsertChar(int c, windowConfig* this);
+
+//brainfuck interpter
+typedef struct brainFuckConfig {
+    unsigned char dataArray[30000];
+    int arraySize;
+    unsigned char* dataPtr;
+
+    bool stepBystep, steppingOut, inALoop;
+    bool executionEnded;
+
+    int instX, instY;
+    
+} brainFuckConfig;
+
+//brainFuck
+void resetBrainfuck(brainFuckConfig* this);
+void processBrainFuck(brainFuckConfig* this);
+void instForward(bool advancing);
+
+//Highest level
+struct environmentConfig {
+    //editor stuff
     int cx, cy;
     int rx;
     int screenRows;
     int screenCols;
     int rowOff, colOff;
     int numRows;
+    //put into winConfig editor
 
     int fullScreenRows;
     int fullScreenCols;
 
     windowConfig editor;
     windowConfig dataArray;
-    windowConfig output;
 
-    erow * row; //dynamic array
+    erow* row; //dynamic array
     int dirty;
-    char * fileName;
-    char statusMsg [255];    //bottleneck for status message length
+    char* fileName;
+    char statusMsg [255]; //bottleneck for status message length
     time_t statusMsg_time;
     struct termios orig_termio;
 
@@ -111,44 +136,34 @@ struct editorConfig {
 
 void initEditor(void);
 
-//brainfuck interpter
-struct brainFuckConfig {
-    unsigned char dataArray[30000];
-    bool debugMode, stepBystep, steppingOut;
-    erow * output;
-    int instX, instY;
-};
-
-void resetBrainfuck();
-
 //append buffer (dynamic string)
 struct abuf {
-    char * b;
+    char* b;
     int len;
 };
 
 #define ABUF_INIT {NULL, 0}
-void abAppend(struct abuf * ab, const char * s, int len);
-void abFree(struct abuf * ab) {free(ab->b);}
+void abAppend(struct abuf* ab, const char* s, int len);
+void abFree(struct abuf* ab) {free(ab->b);}
 
 /*** functions ***/
 //terminal
 void enableRawMode(void);
 void disableRawMode(void);
-void die(const char * s);
+void die(const char* s);
 int editorReadKey(void);
-int getWindowSize (int * rows, int * cols);
-int getCursorPosition(int * rows, int * cols);
+int getWindowSize (int* rows, int* cols);
+int getCursorPosition(int* rows, int* cols);
 
 //row operation
-void editorInsertRow(int at, char *s, size_t len);
-void editorUpdateRow(erow * row);
-int editorRowCxToRx(erow * row, int cx);
-void editorRowInsertChar(erow * row, int at, int c);
-void editorRowDelChar(erow * row, int at);
-void editorFreeRow(erow * row);
+void editorInsertRow(int at, char* s, size_t len);
+void editorUpdateRow(erow* row);
+int editorRowCxToRx(erow* row, int cx);
+void editorRowInsertChar(erow* row, int at, int c);
+void editorRowDelChar(erow* row, int at);
+void editorFreeRow(erow* row);
 void editorDelRow(int at);
-void editorRowAppendString(erow * row, char * s, size_t len);
+void editorRowAppendString(erow* row, char* s, size_t len);
 
 //editor operation
 void editorInsertChar(int c);
@@ -156,36 +171,37 @@ void editorInsertNewLine();
 void editorDelChar();
 
 //file i/o
-void editorOpen(char * fileName);
-char * editorRowToString(int * bufLen);
+void editorOpen(char* fileName);
+char* editorRowToString(int* bufLen);
 void editorSave();
 
 //input
 void editorProcessKeypress(void);
 void editorMoveCursor(int key);
-char * editorPrompt(char * prompt, int inputSizeLimit); //essentially our own scanf (-1 for no limit)
+char* editorPrompt(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
 
 //output
 void editorScroll(void);
 void editorRefreshScreen(void);
-void editorDrawRows(struct abuf * ab);
-void drawBorder(struct abuf * ab);
-void drawDataArray(struct abuf * ab);
-void drawOutput(struct abuf * ab);
-void editorDrawStatusBar(struct abuf * ab);
-void editorDrawMessageBar(struct abuf * ab);
-void editorSetStatusMessage(const char * fmt, ...);
-void generalMoveCursor(struct abuf * ab, int x, int y);
+void editorDrawRows(struct abuf* ab);
+void drawBorder(struct abuf* ab);
+void drawDataArray(struct abuf* ab);
+void drawOutput(struct abuf* ab);
+void editorDrawStatusBar(struct abuf* ab);
+void editorDrawMessageBar(struct abuf* ab);
+void editorSetStatusMessage(const char* fmt, ...);
+void generalMoveCursor(struct abuf* ab, int x, int y);
 
 //modes and windows
 void modeSwitcher(enum mode nextMode);
 void updateWindowSizes();
 
 /*** global ***/
-struct editorConfig E;
-struct brainFuckConfig B;
+struct environmentConfig E;
+brainFuckConfig B;
+windowConfig O;
 
-int main(int argc, char * argv[]) {
+int main(int argc, char* argv[]) {
 	enableRawMode();
     initEditor();
     //editorOpen("testFile.txt"); //for testing in VScode
@@ -198,6 +214,9 @@ int main(int argc, char * argv[]) {
     while (1){
         editorRefreshScreen();
         editorProcessKeypress();
+        if (E.currentMode != EDIT) {
+            processBrainFuck(&B);
+        }
     }
 
     return 0;
@@ -230,7 +249,7 @@ void disableRawMode(void){
     }
 }
 
-void die(const char *s){ //error handling
+void die(const char* s){ //error handling
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
     perror(s);
@@ -328,7 +347,7 @@ int editorReadKey(void){
     }
 }
 
-int getWindowSize (int* rows, int * cols){
+int getWindowSize (int* rows, int* cols){
     struct winsize ws;
     if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;  //try move cursor a ton
@@ -341,7 +360,7 @@ int getWindowSize (int* rows, int * cols){
     }
 }
 
-int getCursorPosition(int * rows, int * cols){
+int getCursorPosition(int* rows, int* cols){
     char buf[32];
     unsigned int i = 0;
     if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1; //ask terminal for cursor loc
@@ -358,16 +377,16 @@ int getCursorPosition(int * rows, int * cols){
 
 
 //row operation
-void editorInsertRow(int at, char *s, size_t len){
+void editorInsertRow(int at, char* s, size_t len){
     if (at < 0 || at > E.numRows) return;
     //allocate memory for a new row
-    erow * temp = realloc(E.row, sizeof(erow) * (E.numRows + 1));
+    erow* temp = realloc(E.row, sizeof(erow) * (E.numRows + 1));
     if (temp == NULL) die("editorInserRow");
     E.row = temp;
     memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numRows - at));
 
     E.row[at].size = len;
-    E.row[at].chars = (char *) malloc(len + 1);
+    E.row[at].chars = (char*) malloc(len + 1);
     memcpy(E.row[at].chars, s, len);
     E.row[at].chars[len] = '\0'; //we do this manually cuz we stripped off the end of the line (\r\n)
 
@@ -379,7 +398,27 @@ void editorInsertRow(int at, char *s, size_t len){
     E.dirty++;
 }
 
-void editorUpdateRow(erow * row){
+void windowInsertRow(int at, char* s, size_t len, windowConfig* this) {
+    if (at < 0 || at > this->numRows) return;
+    //allocate memory for a new row
+    erow* temp = realloc(this->row, sizeof(erow) * (this->numRows + 1));
+    if (temp == NULL) die("windowInserRow");
+    this->row = temp;
+    memmove(&this->row[at + 1], &this->row[at], sizeof(erow) * (this->numRows - at));
+
+    this->row[at].size = len;
+    this->row[at].chars = (char*) malloc(len + 1);
+    memcpy(this->row[at].chars, s, len);
+    this->row[at].chars[len] = '\0'; //we do this manually cuz we stripped off the end of the line (\r\n)
+
+    this->row[at].rsize = 0;
+    this->row[at].render = NULL;
+    //editorUpdateRow(&E.row[at]);
+
+    this->numRows++;
+}
+
+void editorUpdateRow(erow* row){
     int j;
     int tabs = 0;
     int extraSpace = 0;
@@ -390,7 +429,7 @@ void editorUpdateRow(erow * row){
     extraSpace += tabs * (TAB_STOP - 1);
 
     free (row->render);
-    row->render = (char *) malloc(row->size + extraSpace + 1);
+    row->render = (char*) malloc(row->size + extraSpace + 1);
 
     int idx = 0;
     for (j = 0; j < row->size; j++) {
@@ -409,7 +448,7 @@ void editorUpdateRow(erow * row){
     row->rsize = idx;
 }
 
-int editorRowCxToRx(erow * row, int cx){
+int editorRowCxToRx(erow* row, int cx){
     int rx = 0;
     for (int j = 0; j < cx; j++) { //check everything before cx for tabs
         if (row->chars[j] == '\t') {
@@ -422,9 +461,9 @@ int editorRowCxToRx(erow * row, int cx){
     return rx;
 }
 
-void editorRowInsertChar(erow * row, int at, int c){
+void editorRowInsertChar(erow* row, int at, int c){
     if (at < 0 || at > row->size) at = row->size; //validate at just in case
-    char * temp = realloc(row->chars, row->size + 2); //2 cuz the inserted char, and cuz size doesn't include null terminator
+    char* temp = realloc(row->chars, row->size + 2); //2 cuz the inserted char, and cuz size doesn't include null terminator
     if (temp == NULL) die("editorRowInsertChar");
     row->chars = temp;
 
@@ -435,7 +474,7 @@ void editorRowInsertChar(erow * row, int at, int c){
     E.dirty++;
 }
 
-void editorRowDelChar(erow * row, int at){
+void editorRowDelChar(erow* row, int at){
     if (at < 0 || at >= row->size) return;
     memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
     row->size--;
@@ -443,7 +482,7 @@ void editorRowDelChar(erow * row, int at){
     E.dirty++;
 }
 
-void editorFreeRow(erow * row){
+void editorFreeRow(erow* row){
     free (row->chars);
     free (row->render);
 }
@@ -456,8 +495,8 @@ void editorDelRow(int at){
     E.dirty++;
 }
 
-void editorRowAppendString(erow * row, char * s, size_t len){
-    row->chars = (char *) realloc(row->chars, row->size + len + 1);
+void editorRowAppendString(erow * row, char* s, size_t len){
+    row->chars = (char*) realloc(row->chars, row->size + len + 1);
     memcpy(&row->chars[row->size], s, len);
     row->size += len;
     row->chars[row->size] = '\0';
@@ -474,12 +513,20 @@ void editorInsertChar(int c){
     E.cx++;
 }
 
+void windowInsertChar(int c, windowConfig* this) {
+    if (this->cy == this->numRows) {
+        windowInsertRow(this->numRows,"", 0, this);
+    }
+    editorRowInsertChar(&this->row[this->cy], this->cx, c);
+    this->cx++;
+}
+
 void editorInsertNewLine(){
     if (E.cx == 0) {
         editorInsertRow(E.cy, "", 0);
     }
     else {
-        erow * row = &E.row[E.cy];
+        erow* row = &E.row[E.cy];
         editorInsertRow(E.cy + 1, &row->chars[E.cx], row->size - E.cx);
         row = &E.row[E.cy]; //in case realloc change address of things
         row->size = E.cx;
@@ -506,13 +553,13 @@ void editorDelChar(){
 }
 
 //file i/o
-void editorOpen(char * fileName){
+void editorOpen(char* fileName){
     free(E.fileName);
     E.fileName = strdup(fileName);
 
     FILE *fp = fopen(fileName, "r");
     if (!fp) die("fopen");
-    char * line = NULL;
+    char* line = NULL;
     size_t lineCap = 0; //cuz getline can be more lineCap than needed
     ssize_t lineLen; 
     
@@ -528,16 +575,16 @@ void editorOpen(char * fileName){
     E.dirty = 0;
 }
 
-char * editorRowToString(int * bufLen){
+char* editorRowToString(int* bufLen){
     int totalLen = 0;
     int j;
     for (j = 0; j < E.numRows; j++) {
         totalLen += E.row[j].size + 1;  //+ 1 is for \n
     }
-    if (bufLen != NULL) *bufLen = totalLen;
+    if (bufLen != NULL)*bufLen = totalLen;
 
-    char * buf = malloc(totalLen);
-    char * p = buf;
+    char* buf = malloc(totalLen);
+    char* p = buf;
     for (j = 0; j < E.numRows; j++) {
         memcpy(p, E.row[j].chars, E.row[j].size);
         p += E.row[j].size;
@@ -557,7 +604,7 @@ void editorSave(){
     }
 
     int len;
-    char * buf = editorRowToString(&len);
+    char* buf = editorRowToString(&len);
 
     int fd = open(E.fileName, O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
     if (fd != -1) {
@@ -681,30 +728,24 @@ void editorProcessKeypress(){
             break;
         case F5_FUNCTION_KEY:
             if (E.currentMode == EDIT) {
+                resetBrainfuck(&B);
                 modeSwitcher(DEBUG);
             }
             break;
         case F6_FUNCTION_KEY:
-            editorInsertChar('F');
-            editorInsertChar('6');
             break;
         case F7_FUNCTION_KEY:
-            editorInsertChar('F');
-            editorInsertChar('7');
             break;
         case F8_FUNCTION_KEY:
             if (E.currentMode != EDIT) {
                 modeSwitcher(EDIT);
+                resetBrainfuck(&B);
+                resetWindow(&O);
             }
             break;
         case F9_FUNCTION_KEY:
-            editorInsertChar('F');
-            editorInsertChar('9');
             break;
         case F10_FUNCTION_KEY:
-            editorInsertChar('F');
-            editorInsertChar('1');
-            editorInsertChar('0');
             break;
 
         case CTRL_KEY('l'): 
@@ -718,7 +759,7 @@ void editorProcessKeypress(){
             editorInsertChar(c);
             char curChar = E.row[E.cy].chars[E.cx];
             //if cx is at end of row, curChar would be '\0'
-            if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {  //[] is only really for braninfuck, but shouldn't really affect other language either
+            if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
                 switch (c) {
                     case '(':
                         editorInsertChar(')');
@@ -747,7 +788,7 @@ void editorProcessKeypress(){
 }
 
 void editorMoveCursor(int key){
-    erow *row = (E.cy >= E.numRows) ? NULL : & E.row[E.cy];
+    erow* row = (E.cy >= E.numRows) ? NULL : & E.row[E.cy];
 
     switch (key) {
         case ARROW_UP:
@@ -783,7 +824,7 @@ void editorMoveCursor(int key){
     }
 }
 
-char * editorPrompt(char * prompt, int inputSizeLimit){
+char* editorPrompt(char * prompt, int inputSizeLimit){
     size_t bufSize = 128;
     char * buf = malloc(bufSize);   //our dynamic input buffer
 
@@ -933,30 +974,47 @@ void drawDataArray(struct abuf * ab){
 
     char buf[10];
     
-    for(int i = 0; i < 5; i++) {
+    int locationInArray = (int) (B.dataPtr - B.dataArray);
+    for(int i = 0; i < 16; i++) {
+        if (i == locationInArray) {
+            abAppend(ab, "\x1b[7m", 4);
+        }
         snprintf(buf, sizeof(buf),"%3d|", B.dataArray[i]);
         abAppend(ab, buf, strlen(buf));
+        if (i == locationInArray) {
+            abAppend(ab, "\x1b[m", 3);
+        }
     }
+
+    printf("  ^\n");
+    /*here is the idea:
+    alllocate array (make it dynamic to claim Turing completeness, but static for starter) and do brainfuck operation with 1D array
+    fix number of cell displayed in 1 row to 16.
+    when printing, treat it as 2D array using pointer arithmetic. That way we can do the whole rowOffset thing
+    example: https://www.geeksforgeeks.org/dynamically-allocate-2d-array-c/
+    I also want to number the rows, but save that for later
+    */
+
 }
 
 void drawOutput(struct abuf * ab){
-    generalMoveCursor(ab, E.output.startX, E.output.startY);
-    abAppend(ab, "Output: ", 8);
-
-    /*
-    for (int y = 0; y < E.output.numRows; y++){
-        int outRow = E.output.rowOff + y;
-        if (outRow < E.output.numRows) {
-            int len = B.output[outRow].rsize - E.colOff;
-            if (len < 0) len = 0; //just display nothing
-            if (len > E.dataArray.numCols) len = E.dataArray.numCols;
-            abAppend(ab, &B.output[outRow].render[E.colOff], len);
+    generalMoveCursor(ab, O.startX, O.startY);
+    
+    abAppend(ab, "\x1b[1;37m", 7);
+    abAppend(ab, "Output:\r\n", 9);
+    abAppend(ab, "\x1b[0m", 4);
+    
+    for (int y = 0; y < O.numRows; y++){
+        int outRow = O.rowOff + y;
+        if (outRow < O.numRows) {
+            int len = O.row[outRow].rsize - O.colOff;
+            if (len < 0) len = 0;
+            if (len > O.numCols) len = O.numCols;
+            abAppend(ab, &O.row[outRow].render[E.colOff], len);
         }
 
         abAppend(ab, "\x1b[K", 3);  //clear line right of cursor
-        abAppend(ab, "\r\n", 2);
     }
-    */
 }
 
 void editorDrawStatusBar(struct abuf * ab){
@@ -1027,13 +1085,14 @@ void initEditor(){
     E.numRows = 0;
     E.row = NULL;
 
-
-
     E.dirty = 0;
     E.fileName = NULL;
     E.statusMsg[0] = '\0';
     E.statusMsg_time = 0;
     E.activeWindow = TEXT_EDITOR;
+
+    resetBrainfuck(&B);
+    resetWindow(&O);
 }
 
 void abAppend(struct abuf * ab, const char * s, int len){
@@ -1045,11 +1104,31 @@ void abAppend(struct abuf * ab, const char * s, int len){
     ab->len += len;
 }
 
-void resetBrainfuck(){
-    //B.dataArray = {0};
-    B.stepBystep = true;
-    B.steppingOut = false;
+void resetWindow(windowConfig* this) {
+    free(this->row);
+    this->row = NULL;
 
+    this->cx = 0;
+    this->cy = 0;
+    this->rx = 0;
+    this->rowOff = 0;
+    this->colOff = 0;
+    this->numRows = 0;
+}
+
+
+void resetBrainfuck(brainFuckConfig* this){
+    this->arraySize = 30000;
+    memset(this->dataArray, 0, 30000);  //turn this into dynamic later
+    
+    this->stepBystep = true;
+    this->steppingOut = false;
+    this->inALoop = false;
+    this->executionEnded = false;
+
+    this->instX = 0;
+    this->instY = 0;
+    this->dataPtr = this->dataArray;
 }
 
 //windows
@@ -1078,6 +1157,179 @@ void updateWindowSizes(){
 
     E.dataArray.startX = E.screenCols + 2;
     E.dataArray.startY = 0;
-    E.output.startX = 0;
-    E.output.startY = E.screenRows + 2;
+    O.startX = 0;
+    O.startY = E.screenRows + 2;
+    O.numCols = E.screenCols;
+}
+
+//Barinfuck
+void instForward(bool advancing) {
+    erow *row = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
+    if (advancing) {
+        //there is a - 1 because we don't need it to go 1 space outside the current line
+        if (row && B.instX < row->size - 1 ) {
+            B.instX++;
+        }
+        else if (B.instY < E.numRows && B.instX == row->size - 1) {
+            B.instY++;
+            B.instX = 0;
+        }
+    }
+    else {
+        if (B.instX != 0) {
+            B.instX--;
+        } 
+        else if (B.instY > 0) {
+            B.instY --;
+            B.instX = E.row[B.instY].size;
+        }
+    }
+}
+
+void processBrainFuck(brainFuckConfig* this) {
+    if (this->executionEnded) {
+        editorSetStatusMessage("Execution finished");
+        //It'd be cool to give an error message, too. Put it in the brainfuck struct
+        return;
+    }
+
+    //validate instruction
+    if (this->instY >= E.numRows) {
+        this->executionEnded = true;
+        editorSetStatusMessage("Execution finished");
+        return;
+    }
+    if (this->instX >= E.row[this->instY].size) {
+        //this really shouldn't happen given how my function move inst
+        this->executionEnded = true;
+        editorSetStatusMessage("Instruction fetching error. Execution aborted");
+        return;
+    }
+
+    char curInst = E.row[this->instY].chars[this->instX];
+
+    //validate data cell
+
+    switch(curInst){
+        case '>':
+        //this guy need error checking
+            this->dataPtr++;
+            instForward(true);
+            break;
+        case '<':
+            this->dataPtr--;
+            instForward(true);
+            break;
+        case '+':
+            //also give error checking just in case
+            (*this->dataPtr)++;
+            instForward(true);
+            break;
+        case '-':
+            (*this->dataPtr)--;
+            instForward(true);
+            break;
+        case '.':
+            //also check for change line and delete
+            if (*this->dataPtr > 31 && *this->dataPtr < 127) {
+                windowInsertChar(*this->dataPtr, &O);
+            }
+            instForward(true);
+            break;
+        case ',': {
+            char* userInput = NULL;
+            bool validInput = false;
+            while (userInput == NULL || !validInput) {
+                userInput = editorPrompt("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
+                if(userInput) {
+                    if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
+                        if (userInput[0] > 48 && userInput[0] < 58) {
+                            //We only consider it a number if first char is number
+                            int potentialNum = atoi(userInput);
+                            if(potentialNum == 0 && !(userInput[0] == 0)) {
+                                validInput = false;
+                                free(userInput);
+                                userInput = NULL;
+                                editorSetStatusMessage("Invalid input");
+                                editorRefreshScreen();
+                                editorReadKey();
+                            }
+                            else if (potentialNum > 255) {
+                                validInput = false;
+                                free(userInput);
+                                userInput = NULL;
+                                editorSetStatusMessage("Invalid input -- Number exceeded 8-bit limit");
+                                editorRefreshScreen();
+                                editorReadKey();
+                            }
+                            else {
+                                validInput = true;
+                                *this->dataPtr = potentialNum;
+                            }
+                        }
+                        else {
+                            *this->dataPtr = userInput[0];
+                            validInput = true;
+                        }
+                    }
+                    else {
+                        //we don't want to let user cancel this input
+                        validInput = false;
+                        free(userInput);
+                        userInput = NULL;
+                    }
+                }
+            }
+            free(userInput);
+            userInput = NULL;
+
+            instForward(true);
+            break;
+        }
+        case '[':
+            if(*this->dataPtr){
+                instForward(true);
+                this->inALoop = true;
+            }
+            else{
+                while(this->instY < E.numRows && E.row[this->instY].chars[this->instX] != ']') {
+                    instForward(true);
+                }
+            }
+            break;
+        case ']':
+        //I never thought about how you might get error if you don't close bracket properly. Best to do a check with stack if possible
+        //Actually, I HAVE to use a stack if I want this to work with nested for loops. 
+        //stack would be a dynamic array. Each cell also need to be a pair
+            if(*this->dataPtr){
+                while(E.row[this->instY].chars[this->instX] != '[') {
+                    instForward(false);
+                }
+            }
+            else{
+                this->inALoop = false;
+                this->steppingOut = false;
+                instForward(true);
+            }
+            break;
+        case '?':
+            /*
+            if(debugMode){
+                stepBystep = true;
+            }
+            inst_ptr++;
+            break;
+            */
+        default:
+            instForward(true);
+            /*
+            char nextChar = instruction[inst_ptr];
+            if (nextChar!= '+' && nextChar!= '-' && nextChar!= '>' && nextChar!= '<' &&
+                nextChar!= '.' && nextChar!= ',' && nextChar!= '[' && nextChar!= ']')
+                continue;
+            */
+            break;
+    }
+    E.cx = this->instX;
+    E.cy = this->instY;
 }
