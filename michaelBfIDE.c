@@ -92,7 +92,7 @@ void windowInsertChar(int c, windowConfig* this);
 typedef struct brainFuckConfig {
     unsigned char dataArray[30000];
     int arraySize;
-    unsigned char* dataPtr;
+    int arrayIndex;
 
     bool stepBystep, steppingOut, inALoop;
     bool executionEnded;
@@ -974,7 +974,7 @@ void drawDataArray(struct abuf * ab){
 
     char buf[10];
     
-    int locationInArray = (int) (B.dataPtr - B.dataArray);
+    int locationInArray = B.arrayIndex;
     for(int i = 0; i < 16; i++) {
         if (i == locationInArray) {
             abAppend(ab, "\x1b[7m", 4);
@@ -1117,20 +1117,6 @@ void resetWindow(windowConfig* this) {
 }
 
 
-void resetBrainfuck(brainFuckConfig* this){
-    this->arraySize = 30000;
-    memset(this->dataArray, 0, 30000);  //turn this into dynamic later
-    
-    this->stepBystep = true;
-    this->steppingOut = false;
-    this->inALoop = false;
-    this->executionEnded = false;
-
-    this->instX = 0;
-    this->instY = 0;
-    this->dataPtr = this->dataArray;
-}
-
 //windows
 void modeSwitcher(enum mode nextMode){
     E.currentMode = nextMode;
@@ -1163,6 +1149,20 @@ void updateWindowSizes(){
 }
 
 //Barinfuck
+void resetBrainfuck(brainFuckConfig* this){
+    this->arraySize = 30000;
+    memset(this->dataArray, 0, 30000);  //turn this into dynamic later
+    this->arrayIndex = 0;
+    
+    this->stepBystep = true;
+    this->steppingOut = false;
+    this->inALoop = false;
+    this->executionEnded = false;
+
+    this->instX = 0;
+    this->instY = 0;
+}
+
 void instForward(bool advancing) {
     erow *row = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
     if (advancing) {
@@ -1188,7 +1188,7 @@ void instForward(bool advancing) {
 
 void processBrainFuck(brainFuckConfig* this) {
     if (this->executionEnded) {
-        editorSetStatusMessage("Execution finished");
+        editorSetStatusMessage("Execution finished. Press F8 to go back to editor");
         //It'd be cool to give an error message, too. Put it in the brainfuck struct
         return;
     }
@@ -1209,30 +1209,56 @@ void processBrainFuck(brainFuckConfig* this) {
     char curInst = E.row[this->instY].chars[this->instX];
 
     //validate data cell
+    if (this->arrayIndex < 0) {
+        this->executionEnded = true;
+        editorSetStatusMessage("Error: Attemped to go out of array's lower bound");
+        return;
+    }
+    if (this->arrayIndex >= this->arraySize ) {
+        this->executionEnded = true;
+        editorSetStatusMessage("Error: Attemped to go out of array's upper bound");
+        //make this triger memory allocation later on
+        return;
+    }
+    unsigned char* dataPtr = &(this->dataArray[this->arrayIndex]);
 
     switch(curInst){
         case '>':
-        //this guy need error checking
-            this->dataPtr++;
+            if (this->arrayIndex + 1 >= this->arraySize ) {
+                this->executionEnded = true;
+                editorSetStatusMessage("Error: Attemped to go out of array's upper bound");
+                //make this triger memory allocation later on
+                return;
+            }
+            else {
+                this->arrayIndex++;
             instForward(true);
+            }
             break;
         case '<':
-            this->dataPtr--;
+            if (this->arrayIndex - 1 < 0) {
+                this->executionEnded = true;
+                editorSetStatusMessage("Error: Attemped to go out of array's lower bound");
+                return;
+            }
+            else {
+                this->arrayIndex--;
             instForward(true);
+            }
             break;
         case '+':
             //also give error checking just in case
-            (*this->dataPtr)++;
+            (*dataPtr)++;
             instForward(true);
             break;
         case '-':
-            (*this->dataPtr)--;
+            (*dataPtr)--;
             instForward(true);
             break;
         case '.':
             //also check for change line and delete
-            if (*this->dataPtr > 31 && *this->dataPtr < 127) {
-                windowInsertChar(*this->dataPtr, &O);
+            if (*dataPtr > 31 && *dataPtr < 127) {
+                windowInsertChar(*dataPtr, &O);
             }
             instForward(true);
             break;
@@ -1264,11 +1290,11 @@ void processBrainFuck(brainFuckConfig* this) {
                             }
                             else {
                                 validInput = true;
-                                *this->dataPtr = potentialNum;
+                                *dataPtr = potentialNum;
                             }
                         }
                         else {
-                            *this->dataPtr = userInput[0];
+                            *dataPtr = userInput[0];
                             validInput = true;
                         }
                     }
@@ -1287,7 +1313,7 @@ void processBrainFuck(brainFuckConfig* this) {
             break;
         }
         case '[':
-            if(*this->dataPtr){
+            if(*dataPtr){
                 instForward(true);
                 this->inALoop = true;
             }
@@ -1301,7 +1327,7 @@ void processBrainFuck(brainFuckConfig* this) {
         //I never thought about how you might get error if you don't close bracket properly. Best to do a check with stack if possible
         //Actually, I HAVE to use a stack if I want this to work with nested for loops. 
         //stack would be a dynamic array. Each cell also need to be a pair
-            if(*this->dataPtr){
+            if(*dataPtr){
                 while(E.row[this->instY].chars[this->instX] != '[') {
                     instForward(false);
                 }
