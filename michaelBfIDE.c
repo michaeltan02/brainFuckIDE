@@ -95,6 +95,7 @@ typedef struct brainFuckConfig {
     int arrayIndex;
 
     bool stepBystep, steppingOut, inALoop;
+    bool continueExe;
     bool executionEnded;
 
     int instX, instY;
@@ -190,7 +191,7 @@ void drawOutput(struct abuf* ab);
 void editorDrawStatusBar(struct abuf* ab);
 void editorDrawMessageBar(struct abuf* ab);
 void editorSetStatusMessage(const char* fmt, ...);
-void generalMoveCursor(struct abuf* ab, int x, int y);
+void generalMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking (name confusing with editorMoveCursor)
 
 //modes and windows
 void modeSwitcher(enum mode nextMode);
@@ -214,8 +215,16 @@ int main(int argc, char* argv[]) {
     while (1){
         editorRefreshScreen();
         editorProcessKeypress();
-        if (E.currentMode != EDIT) {
-            processBrainFuck(&B);
+
+        if (E.currentMode == DEBUG) {
+            if (B.stepBystep) {
+                processBrainFuck(&B);
+            }
+            else if (B.continueExe) {
+                while (B.continueExe) {
+                    processBrainFuck(&B);
+                }
+            }
         }
     }
 
@@ -715,24 +724,32 @@ void editorProcessKeypress(){
             }
             break;
         case F1_FUNCTION_KEY:
-            editorInsertChar('1');
             break;
         case F2_FUNCTION_KEY:
-            editorInsertChar('2');
             break;
         case F3_FUNCTION_KEY:
-            editorInsertChar('3');
             break;
         case F4_FUNCTION_KEY:
-            editorInsertChar('4');
             break;
         case F5_FUNCTION_KEY:
             if (E.currentMode == EDIT) {
                 resetBrainfuck(&B);
                 modeSwitcher(DEBUG);
+
+                //temp, will find better way
+                E.cx = 0;
+                E.cy = 0;
+                editorRefreshScreen();
+                
+            }
+            else if (E.currentMode == DEBUG) {
+                B.continueExe = true;
             }
             break;
         case F6_FUNCTION_KEY:
+            if (E.currentMode == DEBUG) {
+                B.stepBystep = true;
+            }
             break;
         case F7_FUNCTION_KEY:
             break;
@@ -1154,10 +1171,12 @@ void resetBrainfuck(brainFuckConfig* this){
     memset(this->dataArray, 0, 30000);  //turn this into dynamic later
     this->arrayIndex = 0;
     
-    this->stepBystep = true;
+    this->stepBystep = false;
     this->steppingOut = false;
     this->inALoop = false;
     this->executionEnded = false;
+
+    this->continueExe = false;
 
     this->instX = 0;
     this->instY = 0;
@@ -1188,6 +1207,7 @@ void instForward(bool advancing) {
 
 void processBrainFuck(brainFuckConfig* this) {
     if (this->executionEnded) {
+        this->continueExe = false;
         editorSetStatusMessage("Execution finished. Press F8 to go back to editor");
         //It'd be cool to give an error message, too. Put it in the brainfuck struct
         return;
@@ -1339,13 +1359,9 @@ void processBrainFuck(brainFuckConfig* this) {
             }
             break;
         case '?':
-            /*
-            if(debugMode){
-                stepBystep = true;
-            }
-            inst_ptr++;
+            this->continueExe = false;
+            instForward(true);
             break;
-            */
         default:
             instForward(true);
             /*
@@ -1356,6 +1372,11 @@ void processBrainFuck(brainFuckConfig* this) {
             */
             break;
     }
+
+    //temp soln
     E.cx = this->instX;
     E.cy = this->instY;
+
+    //update mode of debugger
+    B.stepBystep = false;
 }
