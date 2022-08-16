@@ -1,4 +1,13 @@
 # Brain Fuck IDE
+  __  __ _      _                _ _   ____            _        __            _      _____ _____  ______ 
+ |  \/  (_)    | |              | ( ) |  _ \          (_)      / _|          | |    |_   _|  __ \|  ____|
+ | \  / |_  ___| |__   __ _  ___| |/  | |_) |_ __ __ _ _ _ __ | |_ _   _  ___| | __   | | | |  | | |__   
+ | |\/| | |/ __| '_ \ / _` |/ _ \ |   |  _ <| '__/ _` | | '_ \|  _| | | |/ __| |/ /   | | | |  | |  __|  
+ | |  | | | (__| | | | (_| |  __/ |   | |_) | | | (_| | | | | | | | |_| | (__|   <   _| |_| |__| | |____ 
+ |_|  |_|_|\___|_| |_|\__,_|\___|_|   |____/|_|  \__,_|_|_| |_|_|  \__,_|\___|_|\_\ |_____|_____/|______|
+                                                                                                         
+                                                                                                         
+
 A terminal-based brainfuck IDE made in C, for Unix terminal
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -48,6 +57,11 @@ To be considered an IDE, a program needs to have at least 3 things integrated (*
         * When in debug mode. Press F5 to continue to breakpoint, F6 to step-into, F8 to quit to 
         > Plan to let user Allow user to switch which window they want to scroll
         > Plan to allowe the user to switch between displaying data array as numbers and as characters
+    
+    BONUS: raw input viewer ---------------   COMPLETE
+        * I also included a helper program I made for this project, rawInputViewer
+        * As its name suggest, it lets you see the raw ASCII code and escape sequences your terminal recieves. Useful if you want to add your own special keys to the IDE. 
+        * Ctrl + Q to quit, Ctrl + C to clear the screen
         
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Screenshots
@@ -68,7 +82,7 @@ This section has no impact on using the program. However, if you are interested 
 
 **Main Structure**
 The program's main function operate on a simple loop
-
+\
 __>  Draw Screen (this is when updates happen)
 |           |
 |           V
@@ -77,6 +91,7 @@ __>  Draw Screen (this is when updates happen)
 |           V
 |    Process Brainfuck (if in debug mode)
 |___________|
+\
 
 The interesting part is how each of the section operates. 
 
@@ -91,3 +106,15 @@ The interesting part is how each of the section operates.
 
 **Processing Brainfuck**
 - The interesting operators are intput/output and loops (talk a bit about the stack used)
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Special thanks
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+- The text editor is based on [antirez's kilo](http://antirez.com/news/108), with some additional features and structural changes
+- I learnt about kilo and UNIX I/O throught this [wonderful guide](https://viewsourcecode.org/snaptoken/kilo/index.html)
+- The logo was generated using http://patorjk.com/software/taag/#p=display&f=Big&t=Michael'%20Brainfuck%20IDE
+- Some useful tools and resources:
+    - A list of escape sequences: https://vt100.net/docs/vt100-ug/chapter3.html#ED
+    - The ASCII table I used as reference: https://www.rapidtables.com/code/text/ascii-table.html
+    - I learnt about stack implementation here: https://www.digitalocean.com/community/tutorials/stack-in-c
+   
