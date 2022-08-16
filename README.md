@@ -1,11 +1,12 @@
 # Brain Fuck IDE
+<pre>
   __  __ _      _                _ _   ____            _        __            _      _____ _____  ______ 
  |  \/  (_)    | |              | ( ) |  _ \          (_)      / _|          | |    |_   _|  __ \|  ____|
  | \  / |_  ___| |__   __ _  ___| |/  | |_) |_ __ __ _ _ _ __ | |_ _   _  ___| | __   | | | |  | | |__   
  | |\/| | |/ __| '_ \ / _` |/ _ \ |   |  _ <| '__/ _` | | '_ \|  _| | | |/ __| |/ /   | | | |  | |  __|  
  | |  | | | (__| | | | (_| |  __/ |   | |_) | | | (_| | | | | | | | |_| | (__|   <   _| |_| |__| | |____ 
  |_|  |_|_|\___|_| |_|\__,_|\___|_|   |____/|_|  \__,_|_|_| |_|_|  \__,_|\___|_|\_\ |_____|_____/|______|
-                                                                                                         
+</pre>                                                                                                        
                                                                                                          
 
 A terminal-based brainfuck IDE made in C, for Unix terminal
@@ -82,7 +83,7 @@ This section has no impact on using the program. However, if you are interested 
 
 **Main Structure**
 The program's main function operate on a simple loop
-\
+<pre>
 __>  Draw Screen (this is when updates happen)
 |           |
 |           V
@@ -91,7 +92,7 @@ __>  Draw Screen (this is when updates happen)
 |           V
 |    Process Brainfuck (if in debug mode)
 |___________|
-\
+</pre>
 
 The interesting part is how each of the section operates. 
 
