@@ -96,7 +96,7 @@ __>  Draw Screen (this is when updates happen)
 
 The interesting part is how each of the section operates. 
 
-** Drawing Screen**
+**Drawing Screen**
 - Talk about raw mode and its adventages anad challenges
 - Talk about the object sctructure
 - Mention the guide
