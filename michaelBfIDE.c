@@ -71,8 +71,6 @@ typedef struct erow {
     char* render;
 } erow;
 
-#define COORD_INIT {0, 0}
-
 typedef struct windowConfig {
     int startX, startY;
     int cx, cy;
@@ -88,18 +86,43 @@ void resetWindow(windowConfig* this);
 void windowInsertRow(int at, char*s, size_t len, windowConfig* this);
 void windowInsertChar(int c, windowConfig* this);
 
+//coordinate
+typedef struct coordinate {
+    int x;
+    int y;
+} coordinate;
+
+#define COORD_INIT {0, 0}
+
+//stack of coordinate
+typedef struct coordStack {
+    int top;
+    int size;
+    coordinate stackArray[100];
+}coordStack;
+
+//stack
+void coordStackInit(coordStack* this);
+bool coordStackPush(int x, int y, coordStack* this);
+void coordStackPop(coordStack* this);
+coordinate coordStackTop(coordStack* this); //return {0,0} if stack empty
+bool coordStackIsEmpty(coordStack* this);
+
 //brainfuck interpter
 typedef struct brainFuckConfig {
     unsigned char dataArray[30000];
     int arraySize;
     int arrayIndex;
 
-    bool stepBystep, steppingOut, inALoop;
+    bool stepBystep;
     bool continueExe;
+    bool inALoop, steppingOut;
+    int loopCounter;
     bool executionEnded;
 
     int instX, instY;
     
+    coordStack bracketStack;
 } brainFuckConfig;
 
 //brainFuck
@@ -743,36 +766,38 @@ void editorProcessKeypress(){
                 
             }
             else if (E.currentMode == DEBUG) {
+                //continue
                 B.continueExe = true;
             }
             break;
         case F6_FUNCTION_KEY:
+            //step into
             if (E.currentMode == DEBUG) {
                 B.stepBystep = true;
             }
             break;
         case F7_FUNCTION_KEY:
+            //step out
             break;
         case F8_FUNCTION_KEY:
+            //restart
+            break;
+        case F9_FUNCTION_KEY:
+            //stop
             if (E.currentMode != EDIT) {
                 modeSwitcher(EDIT);
                 resetBrainfuck(&B);
                 resetWindow(&O);
             }
             break;
-        case F9_FUNCTION_KEY:
-            break;
         case F10_FUNCTION_KEY:
             break;
-
         case CTRL_KEY('l'): 
         case '\x1b':
             break;
         case '(':
         case '{':
-        case '[':
-        case '"':
-        case 39:    // this char is '
+        case '[': {
             editorInsertChar(c);
             char curChar = E.row[E.cy].chars[E.cx];
             //if cx is at end of row, curChar would be '\0'
@@ -789,12 +814,56 @@ void editorProcessKeypress(){
                         break;
                     case '"':
                     case 39:
-                        editorInsertChar(c);
+                        if (curChar == c) {
+                            editorMoveCursor(ARROW_RIGHT);
+                        }
+                        else {
+                            editorInsertChar(c);
+                        }
                         break;
                 }
                 editorMoveCursor(ARROW_LEFT);
             }
             break;
+        }
+        case ')':
+        case '}':
+        case ']': {
+            if (E.cy < E.numRows) {
+                char curChar = E.row[E.cy].chars[E.cx];
+                if (curChar == c) {
+                    editorMoveCursor(ARROW_RIGHT);
+                }
+                else {
+                    editorInsertChar(c);
+                }
+            }
+            else {
+                editorInsertChar(c);
+            }
+            break;
+        }
+        case '"':
+        case 39: {    // this char is '
+            if (E.cy < E.numRows) {
+                char curChar = E.row[E.cy].chars[E.cx];
+                if (curChar == c) {
+                    editorMoveCursor(ARROW_RIGHT);
+                }
+                else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
+                    editorInsertChar(c);
+                    editorInsertChar(c);
+                    editorMoveCursor(ARROW_LEFT);
+                }
+                else {
+                    editorInsertChar(c);
+                }
+            }
+            else {
+                editorInsertChar(c);
+            }
+            break;
+        }
         default:
             if ( (c > 31 && c < 127) || c == '\t') {
                 editorInsertChar(c);
@@ -1133,7 +1202,6 @@ void resetWindow(windowConfig* this) {
     this->numRows = 0;
 }
 
-
 //windows
 void modeSwitcher(enum mode nextMode){
     E.currentMode = nextMode;
@@ -1172,14 +1240,18 @@ void resetBrainfuck(brainFuckConfig* this){
     this->arrayIndex = 0;
     
     this->stepBystep = false;
+    this->continueExe = false;
+    
     this->steppingOut = false;
     this->inALoop = false;
-    this->executionEnded = false;
+    this->loopCounter = 0;
 
-    this->continueExe = false;
+    this->executionEnded = false;
 
     this->instX = 0;
     this->instY = 0;
+
+    coordStackInit(&(this->bracketStack));
 }
 
 void instForward(bool advancing) {
@@ -1208,8 +1280,8 @@ void instForward(bool advancing) {
 void processBrainFuck(brainFuckConfig* this) {
     if (this->executionEnded) {
         this->continueExe = false;
-        editorSetStatusMessage("Execution finished. Press F8 to go back to editor");
-        //It'd be cool to give an error message, too. Put it in the brainfuck struct
+        editorSetStatusMessage("Execution finished. Press F9 to go back to editor");
+        //Defintely need to give an error message, too. Put it in the brainfuck struct
         return;
     }
 
@@ -1220,9 +1292,11 @@ void processBrainFuck(brainFuckConfig* this) {
         return;
     }
     if (this->instX >= E.row[this->instY].size) {
-        //this really shouldn't happen given how my function move inst
+        //while we shouldn't move beyond end of line. This gets triggered on empty line. Can also happen when user delete stuff in run time
         this->executionEnded = true;
-        editorSetStatusMessage("Instruction fetching error. Execution aborted");
+        editorSetStatusMessage("Error: failed to fetch instruction");
+        editorRefreshScreen();
+        editorReadKey();
         return;
     }
 
@@ -1232,6 +1306,8 @@ void processBrainFuck(brainFuckConfig* this) {
     if (this->arrayIndex < 0) {
         this->executionEnded = true;
         editorSetStatusMessage("Error: Attemped to go out of array's lower bound");
+        editorRefreshScreen();
+        editorReadKey();
         return;
     }
     if (this->arrayIndex >= this->arraySize ) {
@@ -1259,6 +1335,9 @@ void processBrainFuck(brainFuckConfig* this) {
             if (this->arrayIndex - 1 < 0) {
                 this->executionEnded = true;
                 editorSetStatusMessage("Error: Attemped to go out of array's lower bound");
+                editorRefreshScreen();
+                editorReadKey();
+                //we should be able to do a check for this before running the code
                 return;
             }
             else {
@@ -1289,10 +1368,10 @@ void processBrainFuck(brainFuckConfig* this) {
                 userInput = editorPrompt("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
                 if(userInput) {
                     if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
-                        if (userInput[0] > 48 && userInput[0] < 58) {
+                        if (userInput[0] >= 48 && userInput[0] <= 57) {
                             //We only consider it a number if first char is number
                             int potentialNum = atoi(userInput);
-                            if(potentialNum == 0 && !(userInput[0] == 0)) {
+                            if(potentialNum == 0 && (userInput[0] != '0')) {
                                 validInput = false;
                                 free(userInput);
                                 userInput = NULL;
@@ -1334,27 +1413,48 @@ void processBrainFuck(brainFuckConfig* this) {
         }
         case '[':
             if(*dataPtr){
-                instForward(true);
                 this->inALoop = true;
+                //this->loopCounter++;
+                //loop count doesn't really work with nested loops. WHy not just count inst executed without break (maybe display it?)
+
+                //add bracket loc to stack
+                coordStackPush(this->instX, this->instY, &this->bracketStack);
+                instForward(true);
             }
             else{
+                //skipping would be a bit complicated. Need to check for eof (maybe encapsulate that into a func)
+                //aad also check for ], but ONLY if
                 while(this->instY < E.numRows && E.row[this->instY].chars[this->instX] != ']') {
                     instForward(true);
                 }
             }
             break;
         case ']':
-        //I never thought about how you might get error if you don't close bracket properly. Best to do a check with stack if possible
-        //Actually, I HAVE to use a stack if I want this to work with nested for loops. 
-        //stack would be a dynamic array. Each cell also need to be a pair
             if(*dataPtr){
+                //go back to last open bracket
+                if (!coordStackIsEmpty(&this->bracketStack)) {
+                    this->instX = coordStackTop(&this->bracketStack).x;
+                    this->instY = coordStackTop(&this->bracketStack).y;
+                    instForward(true); //don't execute the open bracket again
+                }
+                else {
+                    editorSetStatusMessage("Error: Cannot find opening bracket");
+                    editorRefreshScreen();
+                    editorReadKey();
+                }
+                //to-do: regenerate stack if user edited code during run time 
+                /*
                 while(E.row[this->instY].chars[this->instX] != '[') {
                     instForward(false);
                 }
+                */
             }
             else{
+                //exit loop
+                coordStackPop(&this->bracketStack);
                 this->inALoop = false;
                 this->steppingOut = false;
+                this->loopCounter = 0;
                 instForward(true);
             }
             break;
@@ -1379,4 +1479,46 @@ void processBrainFuck(brainFuckConfig* this) {
 
     //update mode of debugger
     B.stepBystep = false;
+}
+
+//coordinate stack
+void coordStackInit(coordStack* this) {
+    this->top = -1;
+    this->size = 100;
+    //make this dynamic later
+}
+
+bool coordStackPush(int x, int y, coordStack* this) {
+    this->top++;
+    if (this->top < this->size) {
+        this->stackArray[this->top].x = x;
+        this->stackArray[this->top].y = y;
+    }
+    else {
+        //allocate more memory when dynamic
+        return false;
+    }
+}
+
+void coordStackPop(coordStack* this) {
+    if (this->top > -1) {
+        this->top--;
+    }
+}
+
+coordinate coordStackTop(coordStack* this) {
+    if (this->top > -1 && this->top < this->size) {
+        return (this->stackArray[this->top]);
+    }
+    else {
+        coordinate zeroCoord = {0,0};
+        editorSetStatusMessage("Error: tried to pop empty stack. Returned {0,0}");
+        editorRefreshScreen;
+        editorReadKey();
+        return zeroCoord;
+    }
+}
+
+bool coordStackIsEmpty(coordStack* this) {
+    return (this->top == -1);
 }
