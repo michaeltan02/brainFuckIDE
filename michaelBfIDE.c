@@ -20,7 +20,7 @@
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 
-#define MICHAEL_IDE_VER "0.5"
+#define MICHAEL_IDE_VER "0.6"
 #define TAB_STOP 4
 #define QUIT_TIMES 2
 
@@ -57,7 +57,7 @@ enum window {
     OUTPUT
 };
 
-enum mode {
+enum topMode {
     EDIT = 1,
     DEBUG,
     EXECUTE
@@ -109,15 +109,22 @@ void coordStackPop(coordStack* this);
 coordinate coordStackTop(coordStack* this); //return {0,0} if stack empty
 bool coordStackIsEmpty(coordStack* this);
 
+enum debuggerMode {
+    PAUSED = 0,
+    STEP_BY_STEP,
+    CONTINUE,
+    STEPPING_OUT
+};
+
 //brainfuck interpter
 typedef struct brainFuckConfig {
     unsigned char dataArray[30000];
     int arraySize;
     int arrayIndex;
 
-    bool stepBystep;
-    bool continueExe;
-    bool inALoop, steppingOut;
+    enum debuggerMode debugMode;
+    bool inALoop;
+
     int instCounter;
     bool executionEnded;
 
@@ -131,7 +138,7 @@ typedef struct brainFuckConfig {
 //brainFuck
 void resetBrainfuck(brainFuckConfig* this);
 void processBrainFuck(brainFuckConfig* this);
-void instForward(bool advancing);
+void instForward(); //igore comments
 
 //Highest level
 struct environmentConfig {
@@ -158,7 +165,7 @@ struct environmentConfig {
     struct termios orig_termio;
 
     enum window activeWindow;
-    enum mode currentMode;
+    enum topMode currentMode;
 };
 
 void initEditor(void);
@@ -220,7 +227,7 @@ void editorSetStatusMessage(const char* fmt, ...);
 void generalMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking (name confusing with editorMoveCursor)
 
 //modes and windows
-void modeSwitcher(enum mode nextMode);
+void modeSwitcher(enum topMode nextMode);
 void updateWindowSizes();
 
 /*** global ***/
@@ -243,11 +250,13 @@ int main(int argc, char* argv[]) {
         editorProcessKeypress();
 
         if (E.currentMode == DEBUG) {
-            if (B.stepBystep) {
-                processBrainFuck(&B);
+            if (B.debugMode == STEP_BY_STEP) {
+                while (B.debugMode == STEP_BY_STEP) {
+                    processBrainFuck(&B);
+                }
             }
-            else if (B.continueExe) {
-                while (B.continueExe) {
+            else if (B.debugMode == CONTINUE) {
+                while (B.debugMode == CONTINUE) {
                     processBrainFuck(&B);
                 }
             }
@@ -770,13 +779,13 @@ void editorProcessKeypress(){
             }
             else if (E.currentMode == DEBUG) {
                 //continue
-                B.continueExe = true;
+                B.debugMode = CONTINUE;
             }
             break;
         case F6_FUNCTION_KEY:
             //step into
             if (E.currentMode == DEBUG) {
-                B.stepBystep = true;
+                B.debugMode = STEP_BY_STEP;
             }
             break;
         case F7_FUNCTION_KEY:
@@ -1216,7 +1225,7 @@ void resetWindow(windowConfig* this) {
 }
 
 //windows
-void modeSwitcher(enum mode nextMode){
+void modeSwitcher(enum topMode nextMode){
     E.currentMode = nextMode;
     write(STDOUT_FILENO, "\x1b[2J", 4);    //clear entire screen
     updateWindowSizes();
@@ -1253,10 +1262,8 @@ void resetBrainfuck(brainFuckConfig* this){
     memset(this->dataArray, 0, 30000);  //turn this into dynamic later
     this->arrayIndex = 0;
     
-    this->stepBystep = false;
-    this->continueExe = false;
-    
-    this->steppingOut = false;
+    this->debugMode = PAUSED;
+
     this->inALoop = false;
     this->instCounter = 0;
 
@@ -1270,9 +1277,11 @@ void resetBrainfuck(brainFuckConfig* this){
     this->errorMsg = NULL;
 }
 
-void instForward(bool advancing) {
-    erow *row = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
-    if (advancing) {
+void instForward() { //igores comments
+    char nextChar = '\0';
+    while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
+            nextChar != '.' && nextChar != ',' && nextChar != '[' && nextChar != ']' && nextChar != '?') {
+        erow *row = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
         //there is a - 1 because we don't need it to go 1 space outside the current line
         if (row && B.instX < row->size - 1 ) {
             B.instX++;
@@ -1281,14 +1290,14 @@ void instForward(bool advancing) {
             B.instY++;
             B.instX = 0;
         }
-    }
-    else {
-        if (B.instX != 0) {
-            B.instX--;
-        } 
-        else if (B.instY > 0) {
-            B.instY --;
-            B.instX = E.row[B.instY].size;
+
+        erow *nextRow = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
+        if (nextRow == NULL) return;
+        if (B.instX < nextRow->size) {
+            nextChar = nextRow->chars[B.instX];
+        }
+        else {
+            nextChar = '\0';
         }
     }
 }
@@ -1297,10 +1306,7 @@ void processBrainFuck(brainFuckConfig* this) {
     //validate inst
     if (this->instY >= E.numRows || this->executionEnded) {
         this->executionEnded = true;
-
-        this->stepBystep = false;
-        this->continueExe = false;
-        this->steppingOut = false;
+        this->debugMode = PAUSED;
         
         if (this->errorMsg) {
             editorSetStatusMessage("Execution finished. %s Press F9 to go back to editor", this->errorMsg);
@@ -1314,11 +1320,12 @@ void processBrainFuck(brainFuckConfig* this) {
 
     if (this->instX >= E.row[this->instY].size) {
         //This gets triggered on empty line. Can also happen when user delete stuff in run time
-        instForward(true);
+        instForward();
         E.cx = this->instX;
         E.cy = this->instY;
         return;
     }
+
     char curInst = E.row[this->instY].chars[this->instX];
 
     //validate data cell
@@ -1327,6 +1334,7 @@ void processBrainFuck(brainFuckConfig* this) {
         //preseumably there should be an error message set already
         return;
     }
+
     unsigned char* dataPtr = &(this->dataArray[this->arrayIndex]);
 
     switch(curInst){
@@ -1341,9 +1349,9 @@ void processBrainFuck(brainFuckConfig* this) {
             }
             else {
                 this->arrayIndex++;
-                instForward(true);
-                this->instCounter++;
+                instForward();
             }
+            this->instCounter++;
             break;
         case '<':
             if (this->arrayIndex - 1 < 0) {
@@ -1356,18 +1364,19 @@ void processBrainFuck(brainFuckConfig* this) {
             }
             else {
                 this->arrayIndex--;
-                instForward(true);
+                instForward();
                 this->instCounter++;
             }
+            this->instCounter++;
             break;
         case '+':
             (*dataPtr)++;
-            instForward(true);
+            instForward();
             this->instCounter++;
             break;
         case '-':
             (*dataPtr)--;
-            instForward(true);
+            instForward();
             this->instCounter++;
             break;
         case '.':
@@ -1375,7 +1384,7 @@ void processBrainFuck(brainFuckConfig* this) {
             if (*dataPtr > 31 && *dataPtr < 127) {
                 windowInsertChar(*dataPtr, &O);
             }
-            instForward(true);
+            instForward();
             this->instCounter++;
             break;
         case ',': {
@@ -1425,7 +1434,7 @@ void processBrainFuck(brainFuckConfig* this) {
             free(userInput);
             userInput = NULL;
 
-            instForward(true);
+            instForward();
             this->instCounter++;
             break;
         }
@@ -1434,13 +1443,13 @@ void processBrainFuck(brainFuckConfig* this) {
                 this->inALoop = true;
                 //add bracket loc to stack
                 coordStackPush(this->instX, this->instY, &this->bracketStack);
-                instForward(true);
+                instForward();
             }
             else{
                 //skipping would be a bit complicated. Need to check for eof (maybe encapsulate that into a func)
                 //aad also check for ], but ONLY if no additonal open bracket
                 while(this->instY < E.numRows && E.row[this->instY].chars[this->instX] != ']') {
-                    instForward(true);
+                    instForward();
                 }
             }
             break;
@@ -1450,7 +1459,7 @@ void processBrainFuck(brainFuckConfig* this) {
                 if (!coordStackIsEmpty(&this->bracketStack)) {
                     this->instX = coordStackTop(&this->bracketStack).x;
                     this->instY = coordStackTop(&this->bracketStack).y;
-                    instForward(true); //don't execute the open bracket again
+                    instForward(); //don't execute the open bracket again
                 }
                 else {
                     this->executionEnded = true;
@@ -1464,17 +1473,19 @@ void processBrainFuck(brainFuckConfig* this) {
                 //exit loop
                 coordStackPop(&this->bracketStack);
                 this->inALoop = false;
-                this->steppingOut = false;
-                instForward(true);
+                if (this->debugMode == STEPPING_OUT) {
+                    this->debugMode = PAUSED;
+                }
+                instForward();
             }
             break;
         case '?':
-            this->continueExe = false;
-            instForward(true);
+            this->debugMode = PAUSED;
+            instForward();
             this->instCounter = 0;
             break;
         default:
-            instForward(true);
+            instForward();
             /*
             char nextChar = instruction[inst_ptr];
             if (nextChar!= '+' && nextChar!= '-' && nextChar!= '>' && nextChar!= '<' &&
@@ -1488,8 +1499,7 @@ void processBrainFuck(brainFuckConfig* this) {
     E.cx = this->instX;
     E.cy = this->instY;
 
-    //update mode of debugger
-    B.stepBystep = false;
+    if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
 }
 
 //coordinate stack
