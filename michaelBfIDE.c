@@ -76,6 +76,7 @@ typedef struct windowConfig {
     int cx, cy;
     int rx;
     int numRows;
+    int windowRows;
     int numCols;
     int rowOff, colOff;
     erow* row; //dynamic array
@@ -117,12 +118,14 @@ typedef struct brainFuckConfig {
     bool stepBystep;
     bool continueExe;
     bool inALoop, steppingOut;
-    int loopCounter;
+    int instCounter;
     bool executionEnded;
 
     int instX, instY;
     
     coordStack bracketStack;
+
+    char errorMsg [255];
 } brainFuckConfig;
 
 //brainFuck
@@ -228,7 +231,7 @@ windowConfig O;
 int main(int argc, char* argv[]) {
 	enableRawMode();
     initEditor();
-    //editorOpen("testFile.txt"); //for testing in VScode
+    //editorOpen("bfHelloWorld.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
     }
@@ -759,7 +762,7 @@ void editorProcessKeypress(){
                 resetBrainfuck(&B);
                 modeSwitcher(DEBUG);
 
-                //temp, will find better way
+                //temp, will find better way (also fix restart)
                 E.cx = 0;
                 E.cy = 0;
                 editorRefreshScreen();
@@ -781,6 +784,11 @@ void editorProcessKeypress(){
             break;
         case F8_FUNCTION_KEY:
             //restart
+            E.cx = 0;
+            E.cy = 0;
+            resetBrainfuck(&B);
+            resetWindow(&O);
+            editorRefreshScreen();
             break;
         case F9_FUNCTION_KEY:
             //stop
@@ -1085,21 +1093,24 @@ void drawDataArray(struct abuf * ab){
 
 void drawOutput(struct abuf * ab){
     generalMoveCursor(ab, O.startX, O.startY);
-    
-    abAppend(ab, "\x1b[1;37m", 7);
-    abAppend(ab, "Output:\r\n", 9);
-    abAppend(ab, "\x1b[0m", 4);
-    
-    for (int y = 0; y < O.numRows; y++){
+    for (int y = -1; y < O.windowRows; y++){
         int outRow = O.rowOff + y;
-        if (outRow < O.numRows) {
-            int len = O.row[outRow].rsize - O.colOff;
-            if (len < 0) len = 0;
-            if (len > O.numCols) len = O.numCols;
-            abAppend(ab, &O.row[outRow].render[E.colOff], len);
+        if (y == -1) {
+            abAppend(ab, "\x1b[1;37m", 7);
+            abAppend(ab, "Output:\x1b[0m", 11);
         }
-
-        abAppend(ab, "\x1b[K", 3);  //clear line right of cursor
+        else {
+            if (outRow < O.numRows) {
+                int len = O.row[outRow].rsize - O.colOff;
+                if (len < 0) len = 0;
+                if (len > O.numCols) len = O.numCols;
+                abAppend(ab, &O.row[outRow].render[E.colOff], len);
+            }
+            else {
+                abAppend(ab, "~", 1);
+            }
+        }
+        abAppend(ab, "\x1b[K\r\n", 5);  //clear line right of cursor
     }
 }
 
@@ -1231,6 +1242,7 @@ void updateWindowSizes(){
     O.startX = 0;
     O.startY = E.screenRows + 2;
     O.numCols = E.screenCols;
+    O.windowRows = E.fullScreenRows - E.screenRows - 1 - 2; //1 for border, 2 for status bar/message
 }
 
 //Barinfuck
@@ -1244,7 +1256,7 @@ void resetBrainfuck(brainFuckConfig* this){
     
     this->steppingOut = false;
     this->inALoop = false;
-    this->loopCounter = 0;
+    this->instCounter = 0;
 
     this->executionEnded = false;
 
@@ -1261,7 +1273,7 @@ void instForward(bool advancing) {
         if (row && B.instX < row->size - 1 ) {
             B.instX++;
         }
-        else if (B.instY < E.numRows && B.instX == row->size - 1) {
+        else if (B.instY < E.numRows && B.instX >= row->size - 1) {
             B.instY++;
             B.instX = 0;
         }
@@ -1292,14 +1304,12 @@ void processBrainFuck(brainFuckConfig* this) {
         return;
     }
     if (this->instX >= E.row[this->instY].size) {
-        //while we shouldn't move beyond end of line. This gets triggered on empty line. Can also happen when user delete stuff in run time
-        this->executionEnded = true;
-        editorSetStatusMessage("Error: failed to fetch instruction");
-        editorRefreshScreen();
-        editorReadKey();
+        //This gets triggered on empty line. Can also happen when user delete stuff in run time
+        instForward(true);
+        E.cx = this->instX;
+        E.cy = this->instY;
         return;
     }
-
     char curInst = E.row[this->instY].chars[this->instX];
 
     //validate data cell
@@ -1328,7 +1338,8 @@ void processBrainFuck(brainFuckConfig* this) {
             }
             else {
                 this->arrayIndex++;
-            instForward(true);
+                instForward(true);
+                this->instCounter++;
             }
             break;
         case '<':
@@ -1342,17 +1353,19 @@ void processBrainFuck(brainFuckConfig* this) {
             }
             else {
                 this->arrayIndex--;
-            instForward(true);
+                instForward(true);
+                this->instCounter++;
             }
             break;
         case '+':
-            //also give error checking just in case
             (*dataPtr)++;
             instForward(true);
+            this->instCounter++;
             break;
         case '-':
             (*dataPtr)--;
             instForward(true);
+            this->instCounter++;
             break;
         case '.':
             //also check for change line and delete
@@ -1360,6 +1373,7 @@ void processBrainFuck(brainFuckConfig* this) {
                 windowInsertChar(*dataPtr, &O);
             }
             instForward(true);
+            this->instCounter++;
             break;
         case ',': {
             char* userInput = NULL;
@@ -1409,21 +1423,19 @@ void processBrainFuck(brainFuckConfig* this) {
             userInput = NULL;
 
             instForward(true);
+            this->instCounter++;
             break;
         }
         case '[':
             if(*dataPtr){
                 this->inALoop = true;
-                //this->loopCounter++;
-                //loop count doesn't really work with nested loops. WHy not just count inst executed without break (maybe display it?)
-
                 //add bracket loc to stack
                 coordStackPush(this->instX, this->instY, &this->bracketStack);
                 instForward(true);
             }
             else{
                 //skipping would be a bit complicated. Need to check for eof (maybe encapsulate that into a func)
-                //aad also check for ], but ONLY if
+                //aad also check for ], but ONLY if no additonal open bracket
                 while(this->instY < E.numRows && E.row[this->instY].chars[this->instX] != ']') {
                     instForward(true);
                 }
@@ -1443,24 +1455,19 @@ void processBrainFuck(brainFuckConfig* this) {
                     editorReadKey();
                 }
                 //to-do: regenerate stack if user edited code during run time 
-                /*
-                while(E.row[this->instY].chars[this->instX] != '[') {
-                    instForward(false);
-                }
-                */
             }
             else{
                 //exit loop
                 coordStackPop(&this->bracketStack);
                 this->inALoop = false;
                 this->steppingOut = false;
-                this->loopCounter = 0;
                 instForward(true);
             }
             break;
         case '?':
             this->continueExe = false;
             instForward(true);
+            this->instCounter = 0;
             break;
         default:
             instForward(true);
