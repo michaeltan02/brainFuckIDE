@@ -125,7 +125,7 @@ typedef struct brainFuckConfig {
     
     coordStack bracketStack;
 
-    char errorMsg [255];
+    char* errorMsg;
 } brainFuckConfig;
 
 //brainFuck
@@ -784,11 +784,13 @@ void editorProcessKeypress(){
             break;
         case F8_FUNCTION_KEY:
             //restart
-            E.cx = 0;
-            E.cy = 0;
-            resetBrainfuck(&B);
-            resetWindow(&O);
-            editorRefreshScreen();
+            if (E.currentMode != EDIT) {
+                E.cx = 0;
+                E.cy = 0;
+                resetBrainfuck(&B);
+                resetWindow(&O);
+                editorRefreshScreen();
+            }
             break;
         case F9_FUNCTION_KEY:
             //stop
@@ -1264,6 +1266,8 @@ void resetBrainfuck(brainFuckConfig* this){
     this->instY = 0;
 
     coordStackInit(&(this->bracketStack));
+
+    this->errorMsg = NULL;
 }
 
 void instForward(bool advancing) {
@@ -1290,19 +1294,24 @@ void instForward(bool advancing) {
 }
 
 void processBrainFuck(brainFuckConfig* this) {
-    if (this->executionEnded) {
+    //validate inst
+    if (this->instY >= E.numRows || this->executionEnded) {
+        this->executionEnded = true;
+
+        this->stepBystep = false;
         this->continueExe = false;
-        editorSetStatusMessage("Execution finished. Press F9 to go back to editor");
+        this->steppingOut = false;
+        
+        if (this->errorMsg) {
+            editorSetStatusMessage("Execution finished. %s Press F9 to go back to editor", this->errorMsg);
+        }
+        else {
+            editorSetStatusMessage("Execution finished. Press F9 to go back to editor");
+        }
         //Defintely need to give an error message, too. Put it in the brainfuck struct
         return;
     }
 
-    //validate instruction
-    if (this->instY >= E.numRows) {
-        this->executionEnded = true;
-        editorSetStatusMessage("Execution finished");
-        return;
-    }
     if (this->instX >= E.row[this->instY].size) {
         //This gets triggered on empty line. Can also happen when user delete stuff in run time
         instForward(true);
@@ -1313,17 +1322,9 @@ void processBrainFuck(brainFuckConfig* this) {
     char curInst = E.row[this->instY].chars[this->instX];
 
     //validate data cell
-    if (this->arrayIndex < 0) {
+    if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
         this->executionEnded = true;
-        editorSetStatusMessage("Error: Attemped to go out of array's lower bound");
-        editorRefreshScreen();
-        editorReadKey();
-        return;
-    }
-    if (this->arrayIndex >= this->arraySize ) {
-        this->executionEnded = true;
-        editorSetStatusMessage("Error: Attemped to go out of array's upper bound");
-        //make this triger memory allocation later on
+        //preseumably there should be an error message set already
         return;
     }
     unsigned char* dataPtr = &(this->dataArray[this->arrayIndex]);
@@ -1332,7 +1333,9 @@ void processBrainFuck(brainFuckConfig* this) {
         case '>':
             if (this->arrayIndex + 1 >= this->arraySize ) {
                 this->executionEnded = true;
-                editorSetStatusMessage("Error: Attemped to go out of array's upper bound");
+                editorSetStatusMessage("\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m");
+                this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m";
+                editorRefreshScreen();
                 //make this triger memory allocation later on
                 return;
             }
@@ -1345,9 +1348,9 @@ void processBrainFuck(brainFuckConfig* this) {
         case '<':
             if (this->arrayIndex - 1 < 0) {
                 this->executionEnded = true;
-                editorSetStatusMessage("Error: Attemped to go out of array's lower bound");
+                editorSetStatusMessage("\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m");
+                this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m";
                 editorRefreshScreen();
-                editorReadKey();
                 //we should be able to do a check for this before running the code
                 return;
             }
@@ -1450,9 +1453,10 @@ void processBrainFuck(brainFuckConfig* this) {
                     instForward(true); //don't execute the open bracket again
                 }
                 else {
-                    editorSetStatusMessage("Error: Cannot find opening bracket");
+                    this->executionEnded = true;
+                    editorSetStatusMessage("\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m");
+                    this->errorMsg = "\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m";
                     editorRefreshScreen();
-                    editorReadKey();
                 }
                 //to-do: regenerate stack if user edited code during run time 
             }
