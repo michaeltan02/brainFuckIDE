@@ -251,12 +251,17 @@ int main(int argc, char* argv[]) {
 
         if (E.currentMode == DEBUG) {
             if (B.debugMode == STEP_BY_STEP) {
-                while (B.debugMode == STEP_BY_STEP) {
+                    processBrainFuck(&B);
+                }
+            else if (B.debugMode == CONTINUE) {
+                while (B.debugMode == CONTINUE) {
                     processBrainFuck(&B);
                 }
             }
-            else if (B.debugMode == CONTINUE) {
-                while (B.debugMode == CONTINUE) {
+            else if (B.debugMode == STEPPING_OUT) {
+                //current implementation will stop at first closing bracket
+                //A better implementation will  
+                while (B.debugMode == STEPPING_OUT) {
                     processBrainFuck(&B);
                 }
             }
@@ -777,7 +782,7 @@ void editorProcessKeypress(){
                 editorRefreshScreen();
                 
             }
-            else if (E.currentMode == DEBUG) {
+            else if (E.currentMode != EDIT) {
                 //continue
                 B.debugMode = CONTINUE;
             }
@@ -790,6 +795,9 @@ void editorProcessKeypress(){
             break;
         case F7_FUNCTION_KEY:
             //step out
+            if (E.currentMode != EDIT && B.inALoop) {
+                B.debugMode = STEPPING_OUT;
+            }
             break;
         case F8_FUNCTION_KEY:
             //restart
@@ -1055,7 +1063,43 @@ void editorDrawRows(struct abuf * ab) {
             int len = E.row[fileRow].rsize - E.colOff;
             if (len < 0) len = 0; //just display nothing
             if (len > E.screenCols) len = E.screenCols;
-            abAppend(ab, &E.row[fileRow].render[E.colOff], len);
+            //abAppend(ab, &E.row[fileRow].render[E.colOff], len);
+            //basic syntax highlighting
+            char* lineToPrint = &E.row[fileRow].render[E.colOff];
+            for (int j = 0; j < len; j++) {
+                switch(lineToPrint[j]){
+                    case '>':
+                    case '<':
+                        //cyan();
+                        abAppend(ab, "\x1b[36m", 5);
+                        break;
+                    case '+':
+                    case '-':
+                        //white();
+                        abAppend(ab, "\x1b[37m", 5);
+                        break;
+                    case '.':
+                    case ',':
+                        //purple();
+                        abAppend(ab, "\x1b[35m", 5);
+                        break;
+                    case '[':
+                    case ']':
+                        //yellow();
+                        abAppend(ab, "\x1b[33m", 5);
+                        break;
+                    case '?':
+                        //red();
+                        abAppend(ab, "\x1b[31m", 5);
+                        break;
+                    default:
+                        //blue();
+                        abAppend(ab, "\x1b[34m", 5);
+                        break;
+                }
+                abAppend(ab, &lineToPrint[j], 1);
+                abAppend(ab, "\x1b[39m", 5);
+            }
         }
 
         abAppend(ab, "\x1b[K", 3);  //clear line rihgt of cursor
@@ -1486,12 +1530,6 @@ void processBrainFuck(brainFuckConfig* this) {
             break;
         default:
             instForward();
-            /*
-            char nextChar = instruction[inst_ptr];
-            if (nextChar!= '+' && nextChar!= '-' && nextChar!= '>' && nextChar!= '<' &&
-                nextChar!= '.' && nextChar!= ',' && nextChar!= '[' && nextChar!= ']')
-                continue;
-            */
             break;
     }
 
