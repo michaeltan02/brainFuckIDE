@@ -125,12 +125,11 @@ typedef struct brainFuckConfig {
 
     enum debuggerMode debugMode;
 
-    int instCounter;
-    //bool executionEnded; //this can be a debuggerMode thing
-
     int instX, instY;
-    
     coordStack bracketStack;
+    int instCounter;
+
+    
 
     char* errorMsg;
 } brainFuckConfig;
@@ -521,7 +520,7 @@ void editorRowInsertChar(erow* row, int at, int c){
     row->size++;
     row->chars[at] = c;
     editorUpdateRow(row);
-    E.dirty++;
+    //E.dirty++; //add this back in after re-factor
 }
 
 void editorRowDelChar(erow* row, int at){
@@ -1535,6 +1534,36 @@ void processBrainFuck(brainFuckConfig* this) {
             break;
         case ']':
             if(*dataPtr){
+                //check if code have been changed in runtime
+                if (true) {
+                    //reset stack
+                    coordStackInit(&this->bracketStack);
+
+                    int savedInstY = this->instY;
+                    int savedInstX = this->instX;
+                    
+                    this->instX = 0;
+                    this->instY = 0;
+                    //traverse till we reach the closing bracket
+                    bool skipping = true;
+                    while (!(this->instY == savedInstY && this->instX == savedInstX)) {
+                        //no need to worry about stepping out of the file
+                        if (this->instX >= E.row[this->instY].size) {
+                            instForward();
+                            break;
+                        }
+
+                        char curInst = E.row[this->instY].chars[this->instX];
+                        if (curInst == '[') {
+                            coordStackPush(this->instX, this->instY, &this->bracketStack);
+                        }
+                        else if (curInst == ']') {
+                            coordStackPop(&this->bracketStack);
+                        }
+                        instForward();
+                    }
+                }
+                
                 //go back to last open bracket
                 if (!coordStackIsEmpty(&this->bracketStack)) {
                     this->instX = coordStackTop(&this->bracketStack).x;
