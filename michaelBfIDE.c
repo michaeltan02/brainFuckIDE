@@ -1365,8 +1365,6 @@ void processBrainFuck(brainFuckConfig* this) {
     if (this->instX >= E.row[this->instY].size) {
         //This gets triggered on empty line. Can also happen when user delete stuff in run time
         instForward();
-        E.cx = this->instX;
-        E.cy = this->instY;
         return;
     }
 
@@ -1490,10 +1488,45 @@ void processBrainFuck(brainFuckConfig* this) {
                 instForward();
             }
             else{
-                //skipping would be a bit complicated. Need to check for eof (maybe encapsulate that into a func)
-                //aad also check for ], but ONLY if no additonal open bracket
-                while(this->instY < E.numRows && E.row[this->instY].chars[this->instX] != ']') {
-                    instForward();
+                //skip till matching closing bracket
+                coordStack stackForSkippping; //need to free mem if dynamic
+                coordStackInit(&stackForSkippping);
+                
+                //traverse inst till condition met
+                instForward();
+                bool skipping = true;
+                while (skipping) {
+                    if (this->instY >= E.numRows) {
+                        skipping = false;
+                        this->executionEnded = true;
+                        editorSetStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
+                        this->errorMsg = "\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m";
+                        break;
+                    }
+                    if (this->instX >= E.row[this->instY].size) {
+                        instForward();
+                        break;
+                    }
+                    char curInst = E.row[this->instY].chars[this->instX];
+
+                    if (curInst == '[') {
+                        coordStackPush(this->instX, this->instY, &stackForSkippping);
+                        instForward();
+                    }
+                    else if (curInst == ']') {
+                        if (coordStackIsEmpty(&stackForSkippping)) {
+                            instForward();
+                            skipping = false;
+                            break;
+                        }
+                        else {
+                            coordStackPop(&stackForSkippping);
+                            instForward();
+                        }
+                    }
+                    else {
+                        instForward();
+                    }
                 }
             }
             break;
@@ -1532,6 +1565,7 @@ void processBrainFuck(brainFuckConfig* this) {
             instForward();
             break;
     }
+    E.cy = this->instY; //this is just to make sure we scroll to the right place
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
 }
 
