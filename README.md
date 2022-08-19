@@ -27,13 +27,17 @@ To be considered an IDE, a program needs to have at least 3 things integrated (*
         * Display output in its own section, using a custom dynamic struct
         * Displays changes to the memory array
         * Highlights current instruction and data cell
+		* NOTE: Since this is an interpreter, I decided to go the extra mile and made sure to allow one to edit the code during run time.
         
     2. Debugger  --------------------------   COMPLETE
-        * Step-by-step execution (shows which step the user is on)
+  		* Enter debugger by pressing F5      
+		* Step-by-step execution with F6
             *Automatically skip comments during execution
-        * Can use ? to set breakpoints in the program and continue exeuction till breakpoints are reached
-        * Can step out of loops
-        * Has warning for when a loop executed >10000 times
+        * Can use ? to set breakpoints. Continue to break point with F5
+        * Step out of loop with F7
+		* Restart with F8
+		* Quit to editor with F9
+        * Has warning for when >10000 times executed without a break. This is to compensate for the fact that there is no pause button
         > Plan to add error checking for incomplete loop and stepping outside data array (will be called automatically before entering debug mode, can also be called via hotkey)
         
     3. Text editor  -----------------------   BASE COMPLTE, MORE QOL FEATURES PLANNED
@@ -48,7 +52,6 @@ To be considered an IDE, a program needs to have at least 3 things integrated (*
         * Supports window-reiszing
         > Syntax highlighting based on file TYPE
         > Searching
-        > VIM-sytle navigation
         > Auto-indent
         > Save-as for existing files
         > Line number

@@ -775,10 +775,6 @@ void editorProcessKeypress(){
             if (E.currentMode == EDIT) {
                 resetBrainfuck(&B);
                 modeSwitcher(DEBUG);
-
-                //temp, will find better way (also fix restart)
-                E.cx = 0;
-                E.cy = 0;
                 editorRefreshScreen();
                 
             }
@@ -1066,6 +1062,7 @@ void editorDrawRows(struct abuf * ab) {
             //abAppend(ab, &E.row[fileRow].render[E.colOff], len);
             //basic syntax highlighting
             char* lineToPrint = &E.row[fileRow].render[E.colOff];
+            int rxOfInst = editorRowCxToRx(&E.row[fileRow] , B.instX);
             for (int j = 0; j < len; j++) {
                 switch(lineToPrint[j]){
                     case '>':
@@ -1097,8 +1094,11 @@ void editorDrawRows(struct abuf * ab) {
                         abAppend(ab, "\x1b[34m", 5);
                         break;
                 }
+                if (E.currentMode == DEBUG && y == B.instY && rxOfInst == E.colOff + j) {
+                    abAppend(ab, "\x1b[7m", 4);
+                }
                 abAppend(ab, &lineToPrint[j], 1);
-                abAppend(ab, "\x1b[39m", 5);
+                abAppend(ab, "\x1b[0m", 4);
             }
         }
 
@@ -1532,11 +1532,6 @@ void processBrainFuck(brainFuckConfig* this) {
             instForward();
             break;
     }
-
-    //temp soln
-    E.cx = this->instX;
-    E.cy = this->instY;
-
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
 }
 
