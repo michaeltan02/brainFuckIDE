@@ -113,7 +113,8 @@ enum debuggerMode {
     PAUSED = 0,
     STEP_BY_STEP,
     CONTINUE,
-    STEPPING_OUT
+    STEPPING_OUT,
+    EXECUTION_ENDED
 };
 
 //brainfuck interpter
@@ -125,7 +126,7 @@ typedef struct brainFuckConfig {
     enum debuggerMode debugMode;
 
     int instCounter;
-    bool executionEnded; //this can be a debuggerMode thing
+    //bool executionEnded; //this can be a debuggerMode thing
 
     int instX, instY;
     
@@ -791,7 +792,7 @@ void editorProcessKeypress(){
             break;
         case F7_FUNCTION_KEY: {
                 //step out
-                if (E.currentMode == DEBUG && !B.executionEnded) {
+                if (E.currentMode == DEBUG) {
                     bool inALoop = !coordStackIsEmpty(&B.bracketStack);
                     if (inALoop) {
                         B.debugMode = STEPPING_OUT;
@@ -818,6 +819,7 @@ void editorProcessKeypress(){
                 modeSwitcher(EDIT);
                 resetBrainfuck(&B);
                 resetWindow(&O);
+                editorSetStatusMessage("");
             }
             break;
         case F10_FUNCTION_KEY:
@@ -1317,8 +1319,6 @@ void resetBrainfuck(brainFuckConfig* this){
 
     this->instCounter = 0;
 
-    this->executionEnded = false;
-
     this->instX = 0;
     this->instY = 0;
 
@@ -1354,9 +1354,8 @@ void instForward() { //igores comments
 
 void processBrainFuck(brainFuckConfig* this) {
     //validate inst
-    if (this->instY >= E.numRows || this->executionEnded) {
-        this->executionEnded = true;
-        this->debugMode = PAUSED;
+    if (this->instY >= E.numRows || this->debugMode == EXECUTION_ENDED) {
+        this->debugMode = EXECUTION_ENDED;
         
         if (this->errorMsg) {
             editorSetStatusMessage("Execution finished. %s Press F9 to go back to editor", this->errorMsg);
@@ -1364,7 +1363,6 @@ void processBrainFuck(brainFuckConfig* this) {
         else {
             editorSetStatusMessage("Execution finished. Press F9 to go back to editor");
         }
-        //Defintely need to give an error message, too. Put it in the brainfuck struct
         return;
     }
 
@@ -1378,7 +1376,7 @@ void processBrainFuck(brainFuckConfig* this) {
 
     //validate data cell
     if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
-        this->executionEnded = true;
+        this->debugMode = EXECUTION_ENDED;
         //preseumably there should be an error message set already
         return;
     }
@@ -1388,7 +1386,7 @@ void processBrainFuck(brainFuckConfig* this) {
     switch(curInst){
         case '>':
             if (this->arrayIndex + 1 >= this->arraySize ) {
-                this->executionEnded = true;
+                this->debugMode = EXECUTION_ENDED;
                 editorSetStatusMessage("\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m");
                 this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m";
                 editorRefreshScreen();
@@ -1403,7 +1401,7 @@ void processBrainFuck(brainFuckConfig* this) {
             break;
         case '<':
             if (this->arrayIndex - 1 < 0) {
-                this->executionEnded = true;
+                this->debugMode = EXECUTION_ENDED;
                 editorSetStatusMessage("\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m");
                 this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m";
                 editorRefreshScreen();
@@ -1503,7 +1501,7 @@ void processBrainFuck(brainFuckConfig* this) {
                 while (skipping) {
                     if (this->instY >= E.numRows) {
                         skipping = false;
-                        this->executionEnded = true;
+                        this->debugMode = EXECUTION_ENDED;
                         editorSetStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
                         this->errorMsg = "\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m";
                         break;
@@ -1544,7 +1542,7 @@ void processBrainFuck(brainFuckConfig* this) {
                     instForward(); //don't execute the open bracket again
                 }
                 else {
-                    this->executionEnded = true;
+                    this->debugMode = EXECUTION_ENDED;
                     editorSetStatusMessage("\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m");
                     this->errorMsg = "\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m";
                     editorRefreshScreen();
