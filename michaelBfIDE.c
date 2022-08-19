@@ -123,10 +123,9 @@ typedef struct brainFuckConfig {
     int arrayIndex;
 
     enum debuggerMode debugMode;
-    bool inALoop;
 
     int instCounter;
-    bool executionEnded;
+    bool executionEnded; //this can be a debuggerMode thing
 
     int instX, instY;
     
@@ -260,10 +259,11 @@ int main(int argc, char* argv[]) {
             }
             else if (B.debugMode == STEPPING_OUT) {
                 //current implementation will stop at first closing bracket
-                //A better implementation will  
-                while (B.debugMode == STEPPING_OUT) {
+                int curStackSize = B.bracketStack.top;
+                while (B.debugMode == STEPPING_OUT && B.bracketStack.top != curStackSize - 1) {
                     processBrainFuck(&B);
                 }
+                B.debugMode = PAUSED;
             }
         }
     }
@@ -428,7 +428,7 @@ int getCursorPosition(int* rows, int* cols){
 //row operation
 void editorInsertRow(int at, char* s, size_t len){
     if (at < 0 || at > E.numRows) return;
-    //allocate memory for a new row
+    // allocate memory for a new row
     erow* temp = realloc(E.row, sizeof(erow) * (E.numRows + 1));
     if (temp == NULL) die("editorInserRow");
     E.row = temp;
@@ -789,10 +789,17 @@ void editorProcessKeypress(){
                 B.debugMode = STEP_BY_STEP;
             }
             break;
-        case F7_FUNCTION_KEY:
-            //step out
-            if (E.currentMode != EDIT && B.inALoop) {
-                B.debugMode = STEPPING_OUT;
+        case F7_FUNCTION_KEY: {
+                //step out
+                if (E.currentMode == DEBUG && !B.executionEnded) {
+                    bool inALoop = !coordStackIsEmpty(&B.bracketStack);
+                    if (inALoop) {
+                        B.debugMode = STEPPING_OUT;
+                    }
+                    else {
+                        editorSetStatusMessage("Not in loop");
+                    }
+                }
             }
             break;
         case F8_FUNCTION_KEY:
@@ -1308,7 +1315,6 @@ void resetBrainfuck(brainFuckConfig* this){
     
     this->debugMode = PAUSED;
 
-    this->inALoop = false;
     this->instCounter = 0;
 
     this->executionEnded = false;
@@ -1482,7 +1488,6 @@ void processBrainFuck(brainFuckConfig* this) {
         }
         case '[':
             if(*dataPtr){
-                this->inALoop = true;
                 //add bracket loc to stack
                 coordStackPush(this->instX, this->instY, &this->bracketStack);
                 instForward();
@@ -1549,10 +1554,6 @@ void processBrainFuck(brainFuckConfig* this) {
             else{
                 //exit loop
                 coordStackPop(&this->bracketStack);
-                this->inALoop = false;
-                if (this->debugMode == STEPPING_OUT) {
-                    this->debugMode = PAUSED;
-                }
                 instForward();
             }
             break;
