@@ -126,10 +126,10 @@ typedef struct brainFuckConfig {
     enum debuggerMode debugMode;
 
     int instX, instY;
-    coordStack bracketStack;
     int instCounter;
-
     
+    coordStack bracketStack;
+    bool regenerateStack;
 
     char* errorMsg;
 } brainFuckConfig;
@@ -138,6 +138,7 @@ typedef struct brainFuckConfig {
 void resetBrainfuck(brainFuckConfig* this);
 void processBrainFuck(brainFuckConfig* this);
 void instForward(); //igore comments
+void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckConfig* this);
 
 //Highest level
 struct environmentConfig {
@@ -246,8 +247,11 @@ int main(int argc, char* argv[]) {
 
     while (1){
         editorRefreshScreen();
+        int storedDirty = E.dirty;
         editorProcessKeypress();
-
+        if (E.dirty != storedDirty) {
+            B.regenerateStack = true;
+        }
         if (E.currentMode == DEBUG) {
             if (B.debugMode == STEP_BY_STEP) {
                     processBrainFuck(&B);
@@ -520,7 +524,7 @@ void editorRowInsertChar(erow* row, int at, int c){
     row->size++;
     row->chars[at] = c;
     editorUpdateRow(row);
-    //E.dirty++; //add this back in after re-factor
+    E.dirty++;
 }
 
 void editorRowDelChar(erow* row, int at){
@@ -792,6 +796,9 @@ void editorProcessKeypress(){
         case F7_FUNCTION_KEY: {
                 //step out
                 if (E.currentMode == DEBUG) {
+                    if (B.regenerateStack) {
+                        regenerateBracketStack(B.instX, B.instY, &B);
+                    }
                     bool inALoop = !coordStackIsEmpty(&B.bracketStack);
                     if (inALoop) {
                         B.debugMode = STEPPING_OUT;
@@ -809,6 +816,7 @@ void editorProcessKeypress(){
                 E.cy = 0;
                 resetBrainfuck(&B);
                 resetWindow(&O);
+                editorSetStatusMessage("");
                 editorRefreshScreen();
             }
             break;
@@ -1322,6 +1330,7 @@ void resetBrainfuck(brainFuckConfig* this){
     this->instY = 0;
 
     coordStackInit(&(this->bracketStack));
+    this->regenerateStack = false;
 
     this->errorMsg = NULL;
 }
@@ -1357,10 +1366,10 @@ void processBrainFuck(brainFuckConfig* this) {
         this->debugMode = EXECUTION_ENDED;
         
         if (this->errorMsg) {
-            editorSetStatusMessage("Execution finished. %s Press F9 to go back to editor", this->errorMsg);
+            editorSetStatusMessage("Execution finished. %s Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
         else {
-            editorSetStatusMessage("Execution finished. Press F9 to go back to editor");
+            editorSetStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
         }
         return;
     }
@@ -1534,34 +1543,8 @@ void processBrainFuck(brainFuckConfig* this) {
             break;
         case ']':
             if(*dataPtr){
-                //check if code have been changed in runtime
-                if (true) {
-                    //reset stack
-                    coordStackInit(&this->bracketStack);
-
-                    int savedInstY = this->instY;
-                    int savedInstX = this->instX;
-                    
-                    this->instX = 0;
-                    this->instY = 0;
-                    //traverse till we reach the closing bracket
-                    bool skipping = true;
-                    while (!(this->instY == savedInstY && this->instX == savedInstX)) {
-                        //no need to worry about stepping out of the file
-                        if (this->instX >= E.row[this->instY].size) {
-                            instForward();
-                            break;
-                        }
-
-                        char curInst = E.row[this->instY].chars[this->instX];
-                        if (curInst == '[') {
-                            coordStackPush(this->instX, this->instY, &this->bracketStack);
-                        }
-                        else if (curInst == ']') {
-                            coordStackPop(&this->bracketStack);
-                        }
-                        instForward();
-                    }
+                if (this->regenerateStack) {
+                    regenerateBracketStack(this->instX, this->instY, this);
                 }
                 
                 //go back to last open bracket
@@ -1593,8 +1576,39 @@ void processBrainFuck(brainFuckConfig* this) {
             instForward();
             break;
     }
-    E.cy = this->instY; //this is just to make sure we scroll to the right place
+    //E.cy = this->instY; //need SOME way to make sure this process scroll the screen. How does CPUlator do it
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
+}
+
+void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckConfig* this) {
+    if (!this->regenerateStack) return;
+
+    coordStackInit(&this->bracketStack);
+    this->instX = 0;
+    this->instY = 0;
+    
+    //traverse till we reach the closing bracket
+    bool skipping = true;
+    while (!(this->instY == savedInstY && this->instX == savedInstX)) {
+        //validate inst just in case
+        if (this->instY >= E.numRows) {
+            return;
+        }
+        if (this->instX >= E.row[this->instY].size) {
+            instForward();
+            break;
+        }
+
+        char curInst = E.row[this->instY].chars[this->instX];
+        if (curInst == '[') {
+            coordStackPush(this->instX, this->instY, &this->bracketStack);
+        }
+        else if (curInst == ']') {
+            coordStackPop(&this->bracketStack);
+        }
+        instForward();
+    }
+    this->regenerateStack = false;
 }
 
 //coordinate stack
