@@ -249,10 +249,13 @@ int main(int argc, char* argv[]) {
         editorRefreshScreen();
         int storedDirty = E.dirty;
         editorProcessKeypress();
-        if (E.dirty != storedDirty) {
-            B.regenerateStack = true;
-        }
+        
         if (E.currentMode == DEBUG) {
+            if (E.dirty != storedDirty) {
+                B.regenerateStack = true;
+                editorSetStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
+            }
+
             if (B.debugMode == STEP_BY_STEP) {
                     processBrainFuck(&B);
                 }
@@ -703,6 +706,15 @@ void editorProcessKeypress(){
             break;
         case CTRL_KEY('s'):
             editorSave();
+            break;
+        case CTRL_KEY('c'):
+            //manually set brainfuck cursor
+             if (E.currentMode == DEBUG) {
+                B.instX = E.cx;
+                B.instY = E.cy;
+                B.regenerateStack = true;
+                editorSetStatusMessage("Instruction jumped to (%d, %d)", B.instX, B.instY);
+             }
             break;
         case PAGE_UP:
         case PAGE_DOWN:
