@@ -51,7 +51,7 @@ enum editorKey {
     F10_FUNCTION_KEY
 };
 
-enum window {
+enum windowType {
     TEXT_EDITOR = 1,
     DATA_ARRAY,
     OUTPUT
@@ -71,21 +71,20 @@ typedef struct erow {
     char* render;
 } erow;
 
-typedef struct windowConfig {
-    int startX, startY;
+typedef struct window {
+    int startPosX, startPosY;
     int cx, cy;
     int rx;
     int numRows;
     int windowRows;
-    int numCols;
-    int rowOff, colOff;
+    int windowCols;
+    int startRowOrCell, startCol;
     erow* row; //dynamic array
-} windowConfig;
+    int dirty;
+} window;
 
 //window
-void resetWindow(windowConfig* this);
-void windowInsertRow(int at, char*s, size_t len, windowConfig* this);
-void windowInsertChar(int c, windowConfig* this);
+void resetWindow(window* this);
 
 //coordinate
 typedef struct coordinate {
@@ -117,8 +116,8 @@ enum debuggerMode {
     EXECUTION_ENDED
 };
 
-//brainfuck interpter
-typedef struct brainFuckConfig {
+//brainfuck module
+typedef struct brainFuckModule {
     unsigned char dataArray[30000];
     int arraySize;
     int arrayIndex;
@@ -132,16 +131,16 @@ typedef struct brainFuckConfig {
     bool regenerateStack;
 
     char* errorMsg;
-} brainFuckConfig;
+} brainFuckModule;
 
 //brainFuck
-void resetBrainfuck(brainFuckConfig* this);
-void processBrainFuck(brainFuckConfig* this);
+void resetBrainfuck(brainFuckModule* this);
+void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
-void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckConfig* this);
+void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this);
 
 //Highest level
-struct environmentConfig {
+struct globalEnvironment {
     //editor stuff
     int cx, cy;
     int rx;
@@ -149,22 +148,22 @@ struct environmentConfig {
     int screenCols;
     int rowOff, colOff;
     int numRows;
+    erow* row; //dynamic array
+    int dirty;
     //put into winConfig editor
 
     int fullScreenRows;
     int fullScreenCols;
+    
+    window editor;
+    window dataArray;
 
-    windowConfig editor;
-    windowConfig dataArray;
-
-    erow* row; //dynamic array
-    int dirty;
     char* fileName;
     char statusMsg [255]; //bottleneck for status message length
     time_t statusMsg_time;
     struct termios orig_termio;
 
-    enum window activeWindow;
+    enum windowType activeWindow;
     enum topMode currentMode;
 };
 
@@ -185,24 +184,30 @@ void abFree(struct abuf* ab) {free(ab->b);}
 void enableRawMode(void);
 void disableRawMode(void);
 void die(const char* s);
-int editorReadKey(void);
+int readKey(void);
 int getWindowSize (int* rows, int* cols);
 int getCursorPosition(int* rows, int* cols);
 
-//row operation
-void editorInsertRow(int at, char* s, size_t len);
-void editorUpdateRow(erow* row);
-int editorRowCxToRx(erow* row, int cx);
-void editorRowInsertChar(erow* row, int at, int c);
-void editorRowDelChar(erow* row, int at);
-void editorFreeRow(erow* row);
-void editorDelRow(int at);
-void editorRowAppendString(erow* row, char* s, size_t len);
+//row operation (all of this need to be re-factored for window)
+void windowInsertRow(int at, char*s, size_t len, window* this);
 
-//editor operation
+void editorInsertRow(int at, char* s, size_t len);
+
+void windowUpdateRow(erow* row);
+int windowRowCxToRx(erow* row, int cx);
+void windowRowInsertChar(erow* row, int at, int c);
+void windowRowDelChar(erow* row, int at);
+void freeRow(erow* row);
+void windowDelRow(int at);
+void windowRowAppendString(erow* row, char* s, size_t len);
+
+//window operation (all need refactor)
+void windowInsertChar(int c, window* this);
+
 void editorInsertChar(int c);
-void editorInsertNewLine();
-void editorDelChar();
+
+void windowInsertNewLine();
+void windowDelChar();
 
 //file i/o
 void editorOpen(char* fileName);
@@ -210,30 +215,33 @@ char* editorRowToString(int* bufLen);
 void editorSave();
 
 //input
-void editorProcessKeypress(void);
-void editorMoveCursor(int key);
-char* editorPrompt(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
+void processKeypress(void);
+//only this need re-factor
+void moveCursorChecking(int key);
+char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
 
 //output
-void editorScroll(void);
-void editorRefreshScreen(void);
-void editorDrawRows(struct abuf* ab);
+//this need re-factor
+void windowScroll(void);
+
+void globalRefreshScreen(void);
+void drawEditorRows(struct abuf* ab);
 void drawBorder(struct abuf* ab);
 void drawDataArray(struct abuf* ab);
 void drawOutput(struct abuf* ab);
-void editorDrawStatusBar(struct abuf* ab);
-void editorDrawMessageBar(struct abuf* ab);
-void editorSetStatusMessage(const char* fmt, ...);
-void generalMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking (name confusing with editorMoveCursor)
+void drawStatusBar(struct abuf* ab);
+void drawMessageBar(struct abuf* ab);
+void setStatusMessage(const char* fmt, ...);
+void basicMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking
 
 //modes and windows
 void modeSwitcher(enum topMode nextMode);
 void updateWindowSizes();
 
 /*** global ***/
-struct environmentConfig E;
-brainFuckConfig B;
-windowConfig O;
+struct globalEnvironment G;
+brainFuckModule B;
+window O;
 
 int main(int argc, char* argv[]) {
 	enableRawMode();
@@ -243,17 +251,17 @@ int main(int argc, char* argv[]) {
         editorOpen(argv[1]);
     }
 
-    editorSetStatusMessage("HELP: Ctrl-S = Save | Ctrl-Q = quit");
+    setStatusMessage("HELP: Ctrl-S = Save | Ctrl-Q = quit");
 
     while (1){
-        editorRefreshScreen();
-        int storedDirty = E.dirty;
-        editorProcessKeypress();
+        globalRefreshScreen();
+        int storedDirty = G.dirty;
+        processKeypress();
         
-        if (E.currentMode == DEBUG) {
-            if (E.dirty != storedDirty) {
+        if (G.currentMode == DEBUG) {
+            if (G.dirty != storedDirty) {
                 B.regenerateStack = true;
-                editorSetStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
+                setStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
             }
 
             if (B.debugMode == STEP_BY_STEP) {
@@ -280,12 +288,12 @@ int main(int argc, char* argv[]) {
 
 //terminal
 void enableRawMode(){
-    if (tcgetattr(STDIN_FILENO, &E.orig_termio) == -1){
+    if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1){
         die("tcgetattr");
     }
     atexit(disableRawMode); //it's cool that this can be placed anywhere
 
-    struct termios raw = E.orig_termio;
+    struct termios raw = G.orig_termio;
     raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
     raw.c_oflag &= ~(OPOST);
     raw.c_cflag |= (CS8);
@@ -300,7 +308,7 @@ void enableRawMode(){
 }
 
 void disableRawMode(void){
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.orig_termio) == -1){
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &G.orig_termio) == -1){
         die("tcsetattr");   
     }
 }
@@ -313,7 +321,7 @@ void die(const char* s){ //error handling
     exit(1);
 }
 
-int editorReadKey(void){
+int readKey(void){
     int nread;
     char c;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1){
@@ -434,27 +442,27 @@ int getCursorPosition(int* rows, int* cols){
 
 //row operation
 void editorInsertRow(int at, char* s, size_t len){
-    if (at < 0 || at > E.numRows) return;
+    if (at < 0 || at > G.numRows) return;
     // allocate memory for a new row
-    erow* temp = realloc(E.row, sizeof(erow) * (E.numRows + 1));
+    erow* temp = realloc(G.row, sizeof(erow) * (G.numRows + 1));
     if (temp == NULL) die("editorInserRow");
-    E.row = temp;
-    memmove(&E.row[at + 1], &E.row[at], sizeof(erow) * (E.numRows - at));
+    G.row = temp;
+    memmove(&G.row[at + 1], &G.row[at], sizeof(erow) * (G.numRows - at));
 
-    E.row[at].size = len;
-    E.row[at].chars = (char*) malloc(len + 1);
-    memcpy(E.row[at].chars, s, len);
-    E.row[at].chars[len] = '\0'; //we do this manually cuz we stripped off the end of the line (\r\n)
+    G.row[at].size = len;
+    G.row[at].chars = (char*) malloc(len + 1);
+    memcpy(G.row[at].chars, s, len);
+    G.row[at].chars[len] = '\0'; //we do this manually cuz we stripped off the end of the line (\r\n)
 
-    E.row[at].rsize = 0;
-    E.row[at].render = NULL;
-    editorUpdateRow(&E.row[at]);
+    G.row[at].rsize = 0;
+    G.row[at].render = NULL;
+    windowUpdateRow(&G.row[at]);
 
-    E.numRows++;
-    E.dirty++;
+    G.numRows++;
+    G.dirty++;
 }
 
-void windowInsertRow(int at, char* s, size_t len, windowConfig* this) {
+void windowInsertRow(int at, char* s, size_t len, window* this) {
     if (at < 0 || at > this->numRows) return;
     //allocate memory for a new row
     erow* temp = realloc(this->row, sizeof(erow) * (this->numRows + 1));
@@ -472,9 +480,10 @@ void windowInsertRow(int at, char* s, size_t len, windowConfig* this) {
     //editorUpdateRow(&E.row[at]);
 
     this->numRows++;
+    this->dirty++;
 }
 
-void editorUpdateRow(erow* row){
+void windowUpdateRow(erow* row){
     int j;
     int tabs = 0;
     int extraSpace = 0;
@@ -504,7 +513,7 @@ void editorUpdateRow(erow* row){
     row->rsize = idx;
 }
 
-int editorRowCxToRx(erow* row, int cx){
+int windowRowCxToRx(erow* row, int cx){
     int rx = 0;
     for (int j = 0; j < cx; j++) { //check everything before cx for tabs
         if (row->chars[j] == '\t') {
@@ -517,101 +526,101 @@ int editorRowCxToRx(erow* row, int cx){
     return rx;
 }
 
-void editorRowInsertChar(erow* row, int at, int c){
+void windowRowInsertChar(erow* row, int at, int c){
     if (at < 0 || at > row->size) at = row->size; //validate at just in case
     char* temp = realloc(row->chars, row->size + 2); //2 cuz the inserted char, and cuz size doesn't include null terminator
-    if (temp == NULL) die("editorRowInsertChar");
+    if (temp == NULL) die("windowRowInsertChar");
     row->chars = temp;
 
     memmove(&row->chars[at + 1], &row->chars[at], row->size - at + 1); //+1 for null terminator
     row->size++;
     row->chars[at] = c;
-    editorUpdateRow(row);
-    E.dirty++;
+    windowUpdateRow(row);
+    G.dirty++;
 }
 
-void editorRowDelChar(erow* row, int at){
+void windowRowDelChar(erow* row, int at){
     if (at < 0 || at >= row->size) return;
     memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
     row->size--;
-    editorUpdateRow(row);
-    E.dirty++;
+    windowUpdateRow(row);
+    G.dirty++;
 }
 
-void editorFreeRow(erow* row){
+void freeRow(erow* row){
     free (row->chars);
     free (row->render);
 }
 
-void editorDelRow(int at){
-    if (at < 0 || at >= E.numRows) return;
-    editorFreeRow(&E.row[at]);
-    memmove(&E.row[at], &E.row[at + 1], sizeof(erow) * (E.numRows - at - 1));
-    E.numRows--;
-    E.dirty++;
+void windowDelRow(int at){
+    if (at < 0 || at >= G.numRows) return;
+    freeRow(&G.row[at]);
+    memmove(&G.row[at], &G.row[at + 1], sizeof(erow) * (G.numRows - at - 1));
+    G.numRows--;
+    G.dirty++;
 }
 
-void editorRowAppendString(erow * row, char* s, size_t len){
+void windowRowAppendString(erow * row, char* s, size_t len){
     row->chars = (char*) realloc(row->chars, row->size + len + 1);
     memcpy(&row->chars[row->size], s, len);
     row->size += len;
     row->chars[row->size] = '\0';
-    editorUpdateRow(row);
-    E.dirty++;
+    windowUpdateRow(row);
+    G.dirty++;
 }
 
 //editor operation
 void editorInsertChar(int c){
-    if (E.cy == E.numRows) {
-        editorInsertRow(E.numRows,"", 0);
+    if (G.cy == G.numRows) {
+        editorInsertRow(G.numRows,"", 0);
     }
-    editorRowInsertChar(&E.row[E.cy], E.cx, c);
-    E.cx++;
+    windowRowInsertChar(&G.row[G.cy], G.cx, c);
+    G.cx++;
 }
 
-void windowInsertChar(int c, windowConfig* this) {
+void windowInsertChar(int c, window* this) {
     if (this->cy == this->numRows) {
         windowInsertRow(this->numRows,"", 0, this);
     }
-    editorRowInsertChar(&this->row[this->cy], this->cx, c);
+    windowRowInsertChar(&this->row[this->cy], this->cx, c);
     this->cx++;
 }
 
-void editorInsertNewLine(){
-    if (E.cx == 0) {
-        editorInsertRow(E.cy, "", 0);
+void windowInsertNewLine(){
+    if (G.cx == 0) {
+        editorInsertRow(G.cy, "", 0);
     }
     else {
-        erow* row = &E.row[E.cy];
-        editorInsertRow(E.cy + 1, &row->chars[E.cx], row->size - E.cx);
-        row = &E.row[E.cy]; //in case realloc change address of things
-        row->size = E.cx;
+        erow* row = &G.row[G.cy];
+        editorInsertRow(G.cy + 1, &row->chars[G.cx], row->size - G.cx);
+        row = &G.row[G.cy]; //in case realloc change address of things
+        row->size = G.cx;
         row->chars[row->size] = '\0';
-        editorUpdateRow(row);
+        windowUpdateRow(row);
     }
-    E.cy++;
-    E.cx = 0;
+    G.cy++;
+    G.cx = 0;
 }
 
-void editorDelChar(){
-    if (E.cy == E.numRows) return;
-    if (E.cx == 0 && E.cy == 0) return;
-    if (E.cx > 0) {
-        editorRowDelChar(&E.row[E.cy], E.cx - 1);
-        E.cx--;
+void windowDelChar(){
+    if (G.cy == G.numRows) return;
+    if (G.cx == 0 && G.cy == 0) return;
+    if (G.cx > 0) {
+        windowRowDelChar(&G.row[G.cy], G.cx - 1);
+        G.cx--;
     }
     else {
-        E.cx = E.row[E.cy - 1].size;
-        editorRowAppendString(&E.row[E.cy - 1], E.row[E.cy].chars, E.row[E.cy].size);
-        editorDelRow(E.cy);
-        E.cy--;
+        G.cx = G.row[G.cy - 1].size;
+        windowRowAppendString(&G.row[G.cy - 1], G.row[G.cy].chars, G.row[G.cy].size);
+        windowDelRow(G.cy);
+        G.cy--;
     }
 }
 
 //file i/o
 void editorOpen(char* fileName){
-    free(E.fileName);
-    E.fileName = strdup(fileName);
+    free(G.fileName);
+    G.fileName = strdup(fileName);
 
     FILE *fp = fopen(fileName, "r");
     if (!fp) die("fopen");
@@ -623,27 +632,27 @@ void editorOpen(char* fileName){
         while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ){ //strip off change line
             lineLen--;
         }
-        editorInsertRow(E.numRows, line, lineLen);
+        editorInsertRow(G.numRows, line, lineLen);
     }
 
     free(line);
     fclose(fp);
-    E.dirty = 0;
+    G.dirty = 0;
 }
 
 char* editorRowToString(int* bufLen){
     int totalLen = 0;
     int j;
-    for (j = 0; j < E.numRows; j++) {
-        totalLen += E.row[j].size + 1;  //+ 1 is for \n
+    for (j = 0; j < G.numRows; j++) {
+        totalLen += G.row[j].size + 1;  //+ 1 is for \n
     }
     if (bufLen != NULL)*bufLen = totalLen;
 
     char* buf = malloc(totalLen);
     char* p = buf;
-    for (j = 0; j < E.numRows; j++) {
-        memcpy(p, E.row[j].chars, E.row[j].size);
-        p += E.row[j].size;
+    for (j = 0; j < G.numRows; j++) {
+        memcpy(p, G.row[j].chars, G.row[j].size);
+        p += G.row[j].size;
         *p = '\n';
         p++;
     }
@@ -651,10 +660,10 @@ char* editorRowToString(int* bufLen){
 }
 
 void editorSave(){
-    if (E.fileName == NULL) {
-        E.fileName = editorPrompt("Save as (ESC to cancel): %s", 255);
-        if (E.fileName == NULL) {
-            editorSetStatusMessage("Save aborted");
+    if (G.fileName == NULL) {
+        G.fileName = promptInput("Save as (ESC to cancel): %s", 255);
+        if (G.fileName == NULL) {
+            setStatusMessage("Save aborted");
             return;
         }
     }
@@ -662,15 +671,15 @@ void editorSave(){
     int len;
     char* buf = editorRowToString(&len);
 
-    int fd = open(E.fileName, O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
+    int fd = open(G.fileName, O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
     if (fd != -1) {
         if (ftruncate(fd, len) != -1) {
         //ftruncate changes file sizze of len. Doing this instead of reseting entire file means we lose less stuff if write() fail. Better soln would be to use a buffer file 
             if (write(fd, buf, len) == len) {
                 close(fd);
                 free(buf);
-                E.dirty = 0;
-                editorSetStatusMessage("%d bytes written to disk", len);
+                G.dirty = 0;
+                setStatusMessage("%d bytes written to disk", len);
                 return;
             }
         }
@@ -678,25 +687,25 @@ void editorSave(){
     }
 
     free(buf);
-    editorSetStatusMessage("Can't save! I/O errror: %s", strerror(errno));
+    setStatusMessage("Can't save! I/O errror: %s", strerror(errno));
 }
 
 //input
-void editorProcessKeypress(){
+void processKeypress(){
     static int curQuitTimes = QUIT_TIMES;   //preserve value even after going out of scope. Don't get re-initialized
     
-    int c = editorReadKey();
+    int c = readKey();
 
     //putting it here just before an input is processed. Hopefully nothing break
     updateWindowSizes();
 
     switch (c) {
         case '\r':
-            editorInsertNewLine();
+            windowInsertNewLine();
             break;
         case CTRL_KEY('q'):
-            if (E.dirty && curQuitTimes > 0) {
-                editorSetStatusMessage("Warning!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", curQuitTimes);
+            if (G.dirty && curQuitTimes > 0) {
+                setStatusMessage("Warning!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", curQuitTimes);
                 curQuitTimes--;
                 return;
             }
@@ -709,74 +718,74 @@ void editorProcessKeypress(){
             break;
         case CTRL_KEY('c'):
             //manually set brainfuck cursor
-             if (E.currentMode == DEBUG) {
-                B.instX = E.cx;
-                B.instY = E.cy;
+             if (G.currentMode == DEBUG) {
+                B.instX = G.cx;
+                B.instY = G.cy;
                 B.regenerateStack = true;
-                editorSetStatusMessage("Instruction jumped to (%d, %d)", B.instX, B.instY);
+                setStatusMessage("Instruction jumped to (%d, %d)", B.instX, B.instY);
              }
             break;
         case PAGE_UP:
         case PAGE_DOWN:
         {
             if (c == PAGE_UP) {
-                E.cy = E.rowOff;
+                G.cy = G.rowOff;
             }
             else if (c == PAGE_DOWN) {
-                E.cy = E.rowOff + E.screenRows - 1;
-                if (E.cy > E.numRows) E.cy = E.numRows;
+                G.cy = G.rowOff + G.screenRows - 1;
+                if (G.cy > G.numRows) G.cy = G.numRows;
             }
 
-            for (int times = E.screenRows - 1; times > 0; times--) 
-                editorMoveCursor( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN);
+            for (int times = G.screenRows - 1; times > 0; times--) 
+                moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN);
         }
         case HOME_KEY:
-            E.cx = 0;
+            G.cx = 0;
             break;
         case END_KEY:
-            if (E.cy < E.numRows)
-                E.cx = E.row[E.cy].size;
+            if (G.cy < G.numRows)
+                G.cx = G.row[G.cy].size;
             break;
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            if (c == DEL_KEY) editorMoveCursor(ARROW_RIGHT);
-            editorDelChar();
+            if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT);
+            windowDelChar();
             break;
         case ARROW_UP:
         case ARROW_LEFT:
         case ARROW_DOWN:
         case ARROW_RIGHT:
-            editorMoveCursor(c);
+            moveCursorChecking(c);
             break;
         case CTRL_UP:
         case CTRL_LEFT:
             while (1){
-                editorMoveCursor(ARROW_LEFT);
-                char curChar = E.row[E.cy].chars[E.cx -1];  //there are so many edge cases and stuff to check, like "", &&
+                moveCursorChecking(ARROW_LEFT);
+                char curChar = G.row[G.cy].chars[G.cx -1];  //there are so many edge cases and stuff to check, like "", &&
                 if (curChar == ' ' || curChar == '(' ||
                     curChar == ')' || curChar == '[' ||
                     curChar == ']' || curChar == '.' ||
                     curChar == '#' || curChar == '"' ||
                     curChar == '\t' ||
-                    E.row[E.cy].chars[E.cx] == '"'||
-                    E.cx == 0) break;
+                    G.row[G.cy].chars[G.cx] == '"'||
+                    G.cx == 0) break;
             }
             break;
         case CTRL_DOWN:
         case CTRL_RIGHT:
             while (1){
-                editorMoveCursor(ARROW_RIGHT);
-                char curChar = E.row[E.cy].chars[E.cx];
+                moveCursorChecking(ARROW_RIGHT);
+                char curChar = G.row[G.cy].chars[G.cx];
                 if (curChar == ' ' || curChar == '(' ||
                     curChar == ')' || curChar == '[' ||
                     curChar == ']' || curChar == '.' ||
                     curChar == '&' || curChar == ',' ||
                     curChar == ':' || curChar == '"' ||
                     curChar == '\t' ||
-                    (E.row[E.cy].chars[E.cx-1] == '/' && E.row[E.cy].chars[E.cx-2] == '/')||
-                    E.row[E.cy].chars[E.cx-1] == '"'||
-                    E.cx == E.row[E.cy].size ) break;
+                    (G.row[G.cy].chars[G.cx-1] == '/' && G.row[G.cy].chars[G.cx-2] == '/')||
+                    G.row[G.cy].chars[G.cx-1] == '"'||
+                    G.cx == G.row[G.cy].size ) break;
             }
             break;
         case F1_FUNCTION_KEY:
@@ -788,26 +797,26 @@ void editorProcessKeypress(){
         case F4_FUNCTION_KEY:
             break;
         case F5_FUNCTION_KEY:
-            if (E.currentMode == EDIT) {
+            if (G.currentMode == EDIT) {
                 resetBrainfuck(&B);
                 modeSwitcher(DEBUG);
-                editorRefreshScreen();
+                globalRefreshScreen();
                 
             }
-            else if (E.currentMode != EDIT) {
+            else if (G.currentMode != EDIT) {
                 //continue
                 B.debugMode = CONTINUE;
             }
             break;
         case F6_FUNCTION_KEY:
             //step into
-            if (E.currentMode == DEBUG) {
+            if (G.currentMode == DEBUG) {
                 B.debugMode = STEP_BY_STEP;
             }
             break;
         case F7_FUNCTION_KEY: {
                 //step out
-                if (E.currentMode == DEBUG) {
+                if (G.currentMode == DEBUG) {
                     if (B.regenerateStack) {
                         regenerateBracketStack(B.instX, B.instY, &B);
                     }
@@ -816,29 +825,29 @@ void editorProcessKeypress(){
                         B.debugMode = STEPPING_OUT;
                     }
                     else {
-                        editorSetStatusMessage("Not in loop");
+                        setStatusMessage("Not in loop");
                     }
                 }
             }
             break;
         case F8_FUNCTION_KEY:
             //restart
-            if (E.currentMode != EDIT) {
-                E.cx = 0;
-                E.cy = 0;
+            if (G.currentMode != EDIT) {
+                G.cx = 0;
+                G.cy = 0;
                 resetBrainfuck(&B);
                 resetWindow(&O);
-                editorSetStatusMessage("");
-                editorRefreshScreen();
+                setStatusMessage("");
+                globalRefreshScreen();
             }
             break;
         case F9_FUNCTION_KEY:
             //stop
-            if (E.currentMode != EDIT) {
+            if (G.currentMode != EDIT) {
                 modeSwitcher(EDIT);
                 resetBrainfuck(&B);
                 resetWindow(&O);
-                editorSetStatusMessage("");
+                setStatusMessage("");
             }
             break;
         case F10_FUNCTION_KEY:
@@ -850,7 +859,7 @@ void editorProcessKeypress(){
         case '{':
         case '[': {
             editorInsertChar(c);
-            char curChar = E.row[E.cy].chars[E.cx];
+            char curChar = G.row[G.cy].chars[G.cx];
             //if cx is at end of row, curChar would be '\0'
             if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
                 switch (c) {
@@ -866,24 +875,24 @@ void editorProcessKeypress(){
                     case '"':
                     case 39:
                         if (curChar == c) {
-                            editorMoveCursor(ARROW_RIGHT);
+                            moveCursorChecking(ARROW_RIGHT);
                         }
                         else {
                             editorInsertChar(c);
                         }
                         break;
                 }
-                editorMoveCursor(ARROW_LEFT);
+                moveCursorChecking(ARROW_LEFT);
             }
             break;
         }
         case ')':
         case '}':
         case ']': {
-            if (E.cy < E.numRows) {
-                char curChar = E.row[E.cy].chars[E.cx];
+            if (G.cy < G.numRows) {
+                char curChar = G.row[G.cy].chars[G.cx];
                 if (curChar == c) {
-                    editorMoveCursor(ARROW_RIGHT);
+                    moveCursorChecking(ARROW_RIGHT);
                 }
                 else {
                     editorInsertChar(c);
@@ -896,15 +905,15 @@ void editorProcessKeypress(){
         }
         case '"':
         case 39: {    // this char is '
-            if (E.cy < E.numRows) {
-                char curChar = E.row[E.cy].chars[E.cx];
+            if (G.cy < G.numRows) {
+                char curChar = G.row[G.cy].chars[G.cx];
                 if (curChar == c) {
-                    editorMoveCursor(ARROW_RIGHT);
+                    moveCursorChecking(ARROW_RIGHT);
                 }
                 else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
                     editorInsertChar(c);
                     editorInsertChar(c);
-                    editorMoveCursor(ARROW_LEFT);
+                    moveCursorChecking(ARROW_LEFT);
                 }
                 else {
                     editorInsertChar(c);
@@ -924,44 +933,44 @@ void editorProcessKeypress(){
     curQuitTimes = QUIT_TIMES;
 }
 
-void editorMoveCursor(int key){
-    erow* row = (E.cy >= E.numRows) ? NULL : & E.row[E.cy];
+void moveCursorChecking(int key){
+    erow* row = (G.cy >= G.numRows) ? NULL : & G.row[G.cy];
 
     switch (key) {
         case ARROW_UP:
-            if (E.cy > 0) E.cy--;
+            if (G.cy > 0) G.cy--;
             break;
         case ARROW_LEFT:
-            if (E.cx != 0) {
-                E.cx--;
+            if (G.cx != 0) {
+                G.cx--;
             } 
-            else if (E.cy > 0) {
-                E.cy--;
-                E.cx = E.row[E.cy].size;
+            else if (G.cy > 0) {
+                G.cy--;
+                G.cx = G.row[G.cy].size;
             }
             break;
         case ARROW_DOWN:
-            if (E.cy < E.numRows) E.cy++;
+            if (G.cy < G.numRows) G.cy++;
             break;
         case ARROW_RIGHT:
-            if (row && E.cx < row->size ) {
-                E.cx++;
+            if (row && G.cx < row->size ) {
+                G.cx++;
             }
-            else if (E.cy < E.numRows && E.cx == row->size) {
-                E.cy++;
-                E.cx = 0;
+            else if (G.cy < G.numRows && G.cx == row->size) {
+                G.cy++;
+                G.cx = 0;
             }
             break;
     }
     //correct cursor if needed
-    row = (E.cy >= E.numRows) ? NULL : & E.row[E.cy];
+    row = (G.cy >= G.numRows) ? NULL : & G.row[G.cy];
     int rowLen = row ? row->size : 0;
-    if (E.cx > rowLen) {
-        E.cx = rowLen;
+    if (G.cx > rowLen) {
+        G.cx = rowLen;
     }
 }
 
-char* editorPrompt(char * prompt, int inputSizeLimit){
+char* promptInput(char * prompt, int inputSizeLimit){
     size_t bufSize = 128;
     char * buf = malloc(bufSize);   //our dynamic input buffer
 
@@ -969,10 +978,10 @@ char* editorPrompt(char * prompt, int inputSizeLimit){
     buf[0] = '\0';
 
     while (1) {
-        editorSetStatusMessage(prompt, buf);
-        editorRefreshScreen();
+        setStatusMessage(prompt, buf);
+        globalRefreshScreen();
 
-        int c = editorReadKey();
+        int c = readKey();
         if (c == DEL_KEY || c == CTRL_KEY('h') || c == BACKSPACE) { //presed backspace
             if (bufLen != 0) {
                 bufLen--;
@@ -980,17 +989,17 @@ char* editorPrompt(char * prompt, int inputSizeLimit){
             }
         }
         else if (c == '\x1b') {  //pressed esc
-            editorSetStatusMessage("");
+            setStatusMessage("");
             free(buf);
             return NULL;
         }
         else if (c == '\r') {   //pressed enter
             if (bufLen != 0) {
-                editorSetStatusMessage("");
+                setStatusMessage("");
                 if (inputSizeLimit != -1 && bufLen > inputSizeLimit) {
-                    editorSetStatusMessage("Input size limit (%d characters) reached. Please delete some characters", inputSizeLimit);
-                    editorRefreshScreen();
-                    editorReadKey();
+                    setStatusMessage("Input size limit (%d characters) reached. Please delete some characters", inputSizeLimit);
+                    globalRefreshScreen();
+                    readKey();
                 }
                 else {
                     return buf;
@@ -1010,49 +1019,49 @@ char* editorPrompt(char * prompt, int inputSizeLimit){
 }
 
 //output
-void editorScroll(){
+void windowScroll(){
     //first process tabs. Each time E.cx get change, we will get to here, and then calculate the correct E.rx to show
-    E.rx = 0;
-    if (E.cy < E.numRows) {
-        E.rx = editorRowCxToRx(&E.row[E.cy], E.cx);
+    G.rx = 0;
+    if (G.cy < G.numRows) {
+        G.rx = windowRowCxToRx(&G.row[G.cy], G.cx);
     }
 
     //now is actual scrolling
-    if (E.cy < E.rowOff) {
-        E.rowOff = E.cy;
+    if (G.cy < G.rowOff) {
+        G.rowOff = G.cy;
     }
-    if (E.cy >= E.rowOff + E.screenRows) {
-        E.rowOff = E.cy - E.screenRows + 1;
+    if (G.cy >= G.rowOff + G.screenRows) {
+        G.rowOff = G.cy - G.screenRows + 1;
     }
 
-    if (E.rx < E.colOff) {
-        E.colOff = E.rx;
+    if (G.rx < G.colOff) {
+        G.colOff = G.rx;
     }
-    if (E.rx >= E.colOff + E.screenCols) {
-        E.colOff = E.rx - E.screenCols + 1;
+    if (G.rx >= G.colOff + G.screenCols) {
+        G.colOff = G.rx - G.screenCols + 1;
     }
 }
 
-void editorRefreshScreen(){
-    editorScroll();
+void globalRefreshScreen(){
+    windowScroll();
 
     struct abuf ab = ABUF_INIT;
 
     abAppend(&ab, "\x1b[?25l", 6); //hide cursor
     //let's have each function move the cursor position independantly
     
-    editorDrawRows(&ab);
+    drawEditorRows(&ab);
 
-    if (E.currentMode == DEBUG) {
+    if (G.currentMode == DEBUG) {
         drawBorder(&ab);
         drawDataArray(&ab);
         drawOutput(&ab);
     }
 
-    editorDrawStatusBar(&ab);
-    editorDrawMessageBar(&ab);
+    drawStatusBar(&ab);
+    drawMessageBar(&ab);
     
-    generalMoveCursor(&ab, E.rx - E.colOff + 1, E.cy - E.rowOff + 1);
+    basicMoveCursor(&ab, G.rx - G.colOff + 1, G.cy - G.rowOff + 1);
     
     abAppend(&ab, "\x1b[?25h", 6);
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -1060,23 +1069,23 @@ void editorRefreshScreen(){
 
 }
 
-void editorDrawRows(struct abuf * ab) {
+void drawEditorRows(struct abuf * ab) {
     abAppend(ab, "\x1b[H", 3);  //moves cursor position to 0,0
-    for (int y = 0; y < E.screenRows; y++){
-        int fileRow = E.rowOff + y;
-        if (fileRow >= E.numRows) {
-            if (E.numRows == 0 && y == E.screenRows / 3) {  //welcome message
+    for (int y = 0; y < G.screenRows; y++){
+        int fileRow = G.rowOff + y;
+        if (fileRow >= G.numRows) {
+            if (G.numRows == 0 && y == G.screenRows / 3) {  //welcome message
                 char welcome[80];
                 int welcomelen = snprintf(welcome, sizeof(welcome), "Michael's Brainfuck IDE -- version %s", MICHAEL_IDE_VER);
 
-                int padding = (E.screenCols - welcomelen) / 2;
+                int padding = (G.screenCols - welcomelen) / 2;
                 if (padding != 0) {
                     abAppend(ab, "~", 1);
                     padding--;
                 }
                 for (int i = padding; i > 0; i--) abAppend(ab, " ", 1);
 
-                if (welcomelen > E.screenCols) welcomelen = E.screenCols;
+                if (welcomelen > G.screenCols) welcomelen = G.screenCols;
                 abAppend(ab, welcome, welcomelen);
             }
             else {
@@ -1084,13 +1093,13 @@ void editorDrawRows(struct abuf * ab) {
             }
         }
         else {
-            int len = E.row[fileRow].rsize - E.colOff;
+            int len = G.row[fileRow].rsize - G.colOff;
             if (len < 0) len = 0; //just display nothing
-            if (len > E.screenCols) len = E.screenCols;
+            if (len > G.screenCols) len = G.screenCols;
             //abAppend(ab, &E.row[fileRow].render[E.colOff], len);
             //basic syntax highlighting
-            char* lineToPrint = &E.row[fileRow].render[E.colOff];
-            int rxOfInst = editorRowCxToRx(&E.row[fileRow] , B.instX);
+            char* lineToPrint = &G.row[fileRow].render[G.colOff];
+            int rxOfInst = windowRowCxToRx(&G.row[fileRow] , B.instX);
             for (int j = 0; j < len; j++) {
                 switch(lineToPrint[j]){
                     case '>':
@@ -1122,7 +1131,7 @@ void editorDrawRows(struct abuf * ab) {
                         abAppend(ab, "\x1b[34m", 5);
                         break;
                 }
-                if (E.currentMode == DEBUG && y == B.instY && rxOfInst == E.colOff + j) {
+                if (G.currentMode == DEBUG && y == B.instY && rxOfInst == G.colOff + j) {
                     abAppend(ab, "\x1b[7m", 4);
                 }
                 abAppend(ab, &lineToPrint[j], 1);
@@ -1136,18 +1145,18 @@ void editorDrawRows(struct abuf * ab) {
 }
 
 void drawBorder(struct abuf * ab){
-    generalMoveCursor(ab, E.screenCols + 1, 0);
-    for (int y = 0; y < E.screenRows; y++) {
+    basicMoveCursor(ab, G.screenCols + 1, 0);
+    for (int y = 0; y < G.screenRows; y++) {
         abAppend(ab, "|\x1b[D\x1b[B", 7);
     }
-    generalMoveCursor(ab, 0, E.screenRows + 1);
-    for (int x = 0; x < E.fullScreenCols; x++) {
+    basicMoveCursor(ab, 0, G.screenRows + 1);
+    for (int x = 0; x < G.fullScreenCols; x++) {
         abAppend(ab, "=", 1);
     }
 }
 
 void drawDataArray(struct abuf * ab){
-    generalMoveCursor(ab, E.dataArray.startX, E.dataArray.startY);
+    basicMoveCursor(ab, G.dataArray.startPosX, G.dataArray.startPosY);
 
     char buf[10];
     
@@ -1175,19 +1184,19 @@ void drawDataArray(struct abuf * ab){
 }
 
 void drawOutput(struct abuf * ab){
-    generalMoveCursor(ab, O.startX, O.startY);
+    basicMoveCursor(ab, O.startPosX, O.startPosY);
     for (int y = -1; y < O.windowRows; y++){
-        int outRow = O.rowOff + y;
+        int outRow = O.startRowOrCell + y;
         if (y == -1) {
             abAppend(ab, "\x1b[1;37m", 7);
             abAppend(ab, "Output:\x1b[0m", 11);
         }
         else {
             if (outRow < O.numRows) {
-                int len = O.row[outRow].rsize - O.colOff;
+                int len = O.row[outRow].rsize - O.startCol;
                 if (len < 0) len = 0;
-                if (len > O.numCols) len = O.numCols;
-                abAppend(ab, &O.row[outRow].render[E.colOff], len);
+                if (len > O.windowCols) len = O.windowCols;
+                abAppend(ab, &O.row[outRow].render[G.colOff], len);
             }
             else {
                 abAppend(ab, "~", 1);
@@ -1197,20 +1206,20 @@ void drawOutput(struct abuf * ab){
     }
 }
 
-void editorDrawStatusBar(struct abuf * ab){
-    generalMoveCursor(ab, 0, E.fullScreenRows - 1);
+void drawStatusBar(struct abuf * ab){
+    basicMoveCursor(ab, 0, G.fullScreenRows - 1);
     
     abAppend(ab, "\x1b[7m", 4); //invert color, will also use for selection
     //file name
     char status[80], rightStatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", (E.fileName ? E.fileName : "No Name"), E.numRows, (E.dirty ? "(modified)" : "") );
-    if (len > E.fullScreenCols) len = E.fullScreenCols;
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", (G.fileName ? G.fileName : "No Name"), G.numRows, (G.dirty ? "(modified)" : "") );
+    if (len > G.fullScreenCols) len = G.fullScreenCols;
     abAppend(ab, status, len);
 
-    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", E.cy+1 , E.numRows);
+    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.cy+1 , G.numRows);
     //fill rest of screen with spaces for the white bar effect
-    while (len < E.fullScreenCols) {
-        if (E.fullScreenCols - len == rightLen) {
+    while (len < G.fullScreenCols) {
+        if (G.fullScreenCols - len == rightLen) {
             abAppend(ab, rightStatus, rightLen);
             break;
         }
@@ -1223,30 +1232,30 @@ void editorDrawStatusBar(struct abuf * ab){
     abAppend(ab, "\r\n", 2);
 }
 
-void editorSetStatusMessage(const char * fmt, ...){
+void setStatusMessage(const char * fmt, ...){
     //This is how you do function with varied amount of argument (variadic) like printf, 
     va_list ap;
     va_start(ap, fmt); //initalizes ap with start of variable list
     //nomrally you'd then use va_arg(va_list, <varl type>) to access next argument, but we just use vsnprintf to automatically parse fmt in the printf way
-    vsnprintf(E.statusMsg, sizeof(E.statusMsg), fmt, ap);
+    vsnprintf(G.statusMsg, sizeof(G.statusMsg), fmt, ap);
     va_end(ap); //clean up for va_start
-    E.statusMsg_time = time(NULL); //current time, in seconds since midnight Jan 1, 1970
+    G.statusMsg_time = time(NULL); //current time, in seconds since midnight Jan 1, 1970
 }
 
-void editorDrawMessageBar(struct abuf * ab){
+void drawMessageBar(struct abuf * ab){
     abAppend(ab, "\x1b[7m", 4);
 
     abAppend(ab, "\x1b[K", 3);
-    int msgLen = strlen(E.statusMsg);
-    if (msgLen > E.fullScreenCols) msgLen = E.fullScreenCols;
-    time_t curTime = time(NULL) - E.statusMsg_time;
-    if ( ( (time(NULL) - E.statusMsg_time) < 5 ) && msgLen) {
-        abAppend(ab, E.statusMsg, msgLen);
+    int msgLen = strlen(G.statusMsg);
+    if (msgLen > G.fullScreenCols) msgLen = G.fullScreenCols;
+    time_t curTime = time(NULL) - G.statusMsg_time;
+    if ( ( (time(NULL) - G.statusMsg_time) < 5 ) && msgLen) {
+        abAppend(ab, G.statusMsg, msgLen);
     }
     abAppend(ab, "\x1b[m", 3);
 }
 
-void generalMoveCursor(struct abuf * ab, int x, int y) {
+void basicMoveCursor(struct abuf * ab, int x, int y) {
     char buf[32];
     snprintf(buf, sizeof(buf),"\x1b[%d;%dH", y, x);
     abAppend(ab, buf, strlen(buf));
@@ -1254,22 +1263,22 @@ void generalMoveCursor(struct abuf * ab, int x, int y) {
 
 //"member" functions
 void initEditor(){
-    E.currentMode = EDIT;
+    G.currentMode = EDIT;
     updateWindowSizes();
 
-    E.cx = 0;
-    E.cy = 0;
-    E.rx = 0;
-    E.rowOff = 0;
-    E.colOff = 0;
-    E.numRows = 0;
-    E.row = NULL;
+    G.cx = 0;
+    G.cy = 0;
+    G.rx = 0;
+    G.rowOff = 0;
+    G.colOff = 0;
+    G.numRows = 0;
+    G.row = NULL;
 
-    E.dirty = 0;
-    E.fileName = NULL;
-    E.statusMsg[0] = '\0';
-    E.statusMsg_time = 0;
-    E.activeWindow = TEXT_EDITOR;
+    G.dirty = 0;
+    G.fileName = NULL;
+    G.statusMsg[0] = '\0';
+    G.statusMsg_time = 0;
+    G.activeWindow = TEXT_EDITOR;
 
     resetBrainfuck(&B);
     resetWindow(&O);
@@ -1284,52 +1293,52 @@ void abAppend(struct abuf * ab, const char * s, int len){
     ab->len += len;
 }
 
-void resetWindow(windowConfig* this) {
+void resetWindow(window* this) {
     free(this->row);
     this->row = NULL;
 
     this->cx = 0;
     this->cy = 0;
     this->rx = 0;
-    this->rowOff = 0;
-    this->colOff = 0;
+    this->startRowOrCell = 0;
+    this->startCol = 0;
     this->numRows = 0;
 }
 
 //windows
 void modeSwitcher(enum topMode nextMode){
-    E.currentMode = nextMode;
+    G.currentMode = nextMode;
     write(STDOUT_FILENO, "\x1b[2J", 4);    //clear entire screen
     updateWindowSizes();
-    editorRefreshScreen();
+    globalRefreshScreen();
 }
 
 void updateWindowSizes(){
-    if (getWindowSize(&E.fullScreenRows, &E.fullScreenCols) == -1) {
+    if (getWindowSize(&G.fullScreenRows, &G.fullScreenCols) == -1) {
         die("getWindowSize");
     }
     //consider clearing screen if screen size changed. Like, windows that isn't written doesn't get refreshed
-    switch (E.currentMode) {
+    switch (G.currentMode) {
         case EDIT:
-            E.screenCols = E.fullScreenCols;
-            E.screenRows = E.fullScreenRows - 2;
+            G.screenCols = G.fullScreenCols;
+            G.screenRows = G.fullScreenRows - 2;
             break;
         case DEBUG:
-            E.screenRows = (E.fullScreenRows * 3) / 5 - 2;
-            E.screenCols = (E.fullScreenCols / 2) - 2;
+            G.screenRows = (G.fullScreenRows * 3) / 5 - 2;
+            G.screenCols = (G.fullScreenCols / 2) - 2;
             break;
     }
 
-    E.dataArray.startX = E.screenCols + 2;
-    E.dataArray.startY = 0;
-    O.startX = 0;
-    O.startY = E.screenRows + 2;
-    O.numCols = E.screenCols;
-    O.windowRows = E.fullScreenRows - E.screenRows - 1 - 2; //1 for border, 2 for status bar/message
+    G.dataArray.startPosX = G.screenCols + 2;
+    G.dataArray.startPosY = 0;
+    O.startPosX = 0;
+    O.startPosY = G.screenRows + 2;
+    O.windowCols = G.fullScreenCols;
+    O.windowRows = G.fullScreenRows - G.screenRows - 1 - 2; //1 for border, 2 for status bar/message
 }
 
 //Barinfuck
-void resetBrainfuck(brainFuckConfig* this){
+void resetBrainfuck(brainFuckModule* this){
     this->arraySize = 30000;
     memset(this->dataArray, 0, 30000);  //turn this into dynamic later
     this->arrayIndex = 0;
@@ -1351,17 +1360,17 @@ void instForward() { //igores comments
     char nextChar = '\0';
     while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
             nextChar != '.' && nextChar != ',' && nextChar != '[' && nextChar != ']' && nextChar != '?') {
-        erow *row = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
+        erow *row = (B.instY >= G.numRows) ? NULL : & G.row[B.instY];
         //there is a - 1 because we don't need it to go 1 space outside the current line
         if (row && B.instX < row->size - 1 ) {
             B.instX++;
         }
-        else if (B.instY < E.numRows && B.instX >= row->size - 1) {
+        else if (B.instY < G.numRows && B.instX >= row->size - 1) {
             B.instY++;
             B.instX = 0;
         }
 
-        erow *nextRow = (B.instY >= E.numRows) ? NULL : & E.row[B.instY];
+        erow *nextRow = (B.instY >= G.numRows) ? NULL : & G.row[B.instY];
         if (nextRow == NULL) return;
         if (B.instX < nextRow->size) {
             nextChar = nextRow->chars[B.instX];
@@ -1372,27 +1381,28 @@ void instForward() { //igores comments
     }
 }
 
-void processBrainFuck(brainFuckConfig* this) {
+void processBrainFuck(brainFuckModule* this) {
     //validate inst
-    if (this->instY >= E.numRows || this->debugMode == EXECUTION_ENDED) {
+    if (this->instY >= G.numRows || this->debugMode == EXECUTION_ENDED) {
         this->debugMode = EXECUTION_ENDED;
         
+        //put this in status bar (running vs finished and if error encountered in permanat status bar)
         if (this->errorMsg) {
-            editorSetStatusMessage("Execution finished. %s Press F8 to restart, F9 to quit to editor", this->errorMsg);
+            setStatusMessage("Execution finished. %s Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
         else {
-            editorSetStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
+            setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
         }
         return;
     }
 
-    if (this->instX >= E.row[this->instY].size) {
+    if (this->instX >= G.row[this->instY].size) {
         //This gets triggered on empty line. Can also happen when user delete stuff in run time
         instForward();
         return;
     }
 
-    char curInst = E.row[this->instY].chars[this->instX];
+    char curInst = G.row[this->instY].chars[this->instX];
 
     //validate data cell
     if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
@@ -1407,9 +1417,9 @@ void processBrainFuck(brainFuckConfig* this) {
         case '>':
             if (this->arrayIndex + 1 >= this->arraySize ) {
                 this->debugMode = EXECUTION_ENDED;
-                editorSetStatusMessage("\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m");
+                setStatusMessage("\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m");
                 this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m";
-                editorRefreshScreen();
+                globalRefreshScreen();
                 //make this triger memory allocation later on
                 return;
             }
@@ -1422,9 +1432,9 @@ void processBrainFuck(brainFuckConfig* this) {
         case '<':
             if (this->arrayIndex - 1 < 0) {
                 this->debugMode = EXECUTION_ENDED;
-                editorSetStatusMessage("\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m");
+                setStatusMessage("\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m");
                 this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m";
-                editorRefreshScreen();
+                globalRefreshScreen();
                 //we should be able to do a check for this before running the code
                 return;
             }
@@ -1457,7 +1467,7 @@ void processBrainFuck(brainFuckConfig* this) {
             char* userInput = NULL;
             bool validInput = false;
             while (userInput == NULL || !validInput) {
-                userInput = editorPrompt("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
+                userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
                 if(userInput) {
                     if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
                         if (userInput[0] >= 48 && userInput[0] <= 57) {
@@ -1467,17 +1477,17 @@ void processBrainFuck(brainFuckConfig* this) {
                                 validInput = false;
                                 free(userInput);
                                 userInput = NULL;
-                                editorSetStatusMessage("Invalid input");
-                                editorRefreshScreen();
-                                editorReadKey();
+                                setStatusMessage("Invalid input");
+                                globalRefreshScreen();
+                                readKey();
                             }
                             else if (potentialNum > 255) {
                                 validInput = false;
                                 free(userInput);
                                 userInput = NULL;
-                                editorSetStatusMessage("Invalid input -- Number exceeded 8-bit limit");
-                                editorRefreshScreen();
-                                editorReadKey();
+                                setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
+                                globalRefreshScreen();
+                                readKey();
                             }
                             else {
                                 validInput = true;
@@ -1519,18 +1529,18 @@ void processBrainFuck(brainFuckConfig* this) {
                 instForward();
                 bool skipping = true;
                 while (skipping) {
-                    if (this->instY >= E.numRows) {
+                    if (this->instY >= G.numRows) {
                         skipping = false;
                         this->debugMode = EXECUTION_ENDED;
-                        editorSetStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
+                        setStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
                         this->errorMsg = "\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m";
                         break;
                     }
-                    if (this->instX >= E.row[this->instY].size) {
+                    if (this->instX >= G.row[this->instY].size) {
                         instForward();
                         break;
                     }
-                    char curInst = E.row[this->instY].chars[this->instX];
+                    char curInst = G.row[this->instY].chars[this->instX];
 
                     if (curInst == '[') {
                         coordStackPush(this->instX, this->instY, &stackForSkippping);
@@ -1567,9 +1577,9 @@ void processBrainFuck(brainFuckConfig* this) {
                 }
                 else {
                     this->debugMode = EXECUTION_ENDED;
-                    editorSetStatusMessage("\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m");
+                    setStatusMessage("\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m");
                     this->errorMsg = "\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m";
-                    editorRefreshScreen();
+                    globalRefreshScreen();
                 }
                 //to-do: regenerate stack if user edited code during run time 
             }
@@ -1592,7 +1602,7 @@ void processBrainFuck(brainFuckConfig* this) {
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
 }
 
-void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckConfig* this) {
+void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this) {
     if (!this->regenerateStack) return;
 
     coordStackInit(&this->bracketStack);
@@ -1603,15 +1613,15 @@ void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckConfig* thi
     bool skipping = true;
     while (!(this->instY == savedInstY && this->instX == savedInstX)) {
         //validate inst just in case
-        if (this->instY >= E.numRows) {
+        if (this->instY >= G.numRows) {
             return;
         }
-        if (this->instX >= E.row[this->instY].size) {
+        if (this->instX >= G.row[this->instY].size) {
             instForward();
             break;
         }
 
-        char curInst = E.row[this->instY].chars[this->instX];
+        char curInst = G.row[this->instY].chars[this->instX];
         if (curInst == '[') {
             coordStackPush(this->instX, this->instY, &this->bracketStack);
         }
@@ -1654,9 +1664,9 @@ coordinate coordStackTop(coordStack* this) {
     }
     else {
         coordinate zeroCoord = {0,0};
-        editorSetStatusMessage("Error: tried to pop empty stack. Returned {0,0}");
-        editorRefreshScreen;
-        editorReadKey();
+        setStatusMessage("Error: tried to pop empty stack. Returned {0,0}");
+        globalRefreshScreen;
+        readKey();
         return zeroCoord;
     }
 }

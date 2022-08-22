@@ -21,7 +21,7 @@ void die(const char * s);
 char editorReadKey(void);
 
 //input
-void editorProcessKeypress(void);
+void processKeypress(void);
 void editorMoveCursor(char c);
 
 int main(void)
@@ -32,7 +32,7 @@ int main(void)
     write(STDOUT_FILENO, "\x1b[H", 3);  //moves cursor position
     
     while (1){
-        editorProcessKeypress();
+        processKeypress();
     }
 
     return 0;
@@ -82,7 +82,7 @@ char editorReadKey(void){
 }
 
 //input
-void editorProcessKeypress(){
+void processKeypress(){
     char c = editorReadKey();
     switch (c) {
         case CTRL_KEY('q'):
