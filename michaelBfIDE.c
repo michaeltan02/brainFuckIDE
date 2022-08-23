@@ -139,35 +139,27 @@ void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
 void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this);
 
-//Highest level
 struct globalEnvironment {
-    //editor stuff
-    int cx, cy;
-    int rx;
-    int screenRows;
-    int screenCols;
-    int rowOff, colOff;
-    int numRows;
-    erow* row; //dynamic array
-    int dirty;
-    //put into winConfig editor
-
+    //information
+    struct termios orig_termio;
     int fullScreenRows;
     int fullScreenCols;
     
+    //windows
     window editor;
+    window O;
     window dataArray;
+    brainFuckModule B;
 
     char* fileName;
     char statusMsg [255]; //bottleneck for status message length
     time_t statusMsg_time;
-    struct termios orig_termio;
 
     enum windowType activeWindow;
     enum topMode currentMode;
 };
 
-void initEditor(void);
+void globalInit(void);
 
 //append buffer (dynamic string)
 struct abuf {
@@ -188,42 +180,33 @@ int readKey(void);
 int getWindowSize (int* rows, int* cols);
 int getCursorPosition(int* rows, int* cols);
 
-//row operation (all of this need to be re-factored for window)
+//row operation
 void windowInsertRow(int at, char*s, size_t len, window* this);
-
-void editorInsertRow(int at, char* s, size_t len);
-
 void windowUpdateRow(erow* row);
 int windowRowCxToRx(erow* row, int cx);
 void windowRowInsertChar(erow* row, int at, int c);
 void windowRowDelChar(erow* row, int at);
 void freeRow(erow* row);
-void windowDelRow(int at);
+void windowDelRow(int at, window* this);
 void windowRowAppendString(erow* row, char* s, size_t len);
 
 //window operation (all need refactor)
 void windowInsertChar(int c, window* this);
-
-void editorInsertChar(int c);
-
-void windowInsertNewLine();
-void windowDelChar();
+void windowInsertNewLine(window* this);
+void windowDelChar(window* this);
 
 //file i/o
 void editorOpen(char* fileName);
-char* editorRowToString(int* bufLen);
+char* windowRowToString(int* bufLen, window* this);
 void editorSave();
 
 //input
 void processKeypress(void);
-//only this need re-factor
-void moveCursorChecking(int key);
+void moveCursorChecking(int key, window* this);
 char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
 
 //output
-//this need re-factor
-void windowScroll(void);
-
+void windowScroll(window* this);
 void globalRefreshScreen(void);
 void drawEditorRows(struct abuf* ab);
 void drawBorder(struct abuf* ab);
@@ -239,13 +222,11 @@ void modeSwitcher(enum topMode nextMode);
 void updateWindowSizes();
 
 /*** global ***/
-struct globalEnvironment G;
-brainFuckModule B;
-window O;
+struct globalEnvironment G; //This can stay global. Just the windows need to be objects
 
 int main(int argc, char* argv[]) {
 	enableRawMode();
-    initEditor();
+    globalInit();
     //editorOpen("bfHelloWorld.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
@@ -255,30 +236,30 @@ int main(int argc, char* argv[]) {
 
     while (1){
         globalRefreshScreen();
-        int storedDirty = G.dirty;
+        int storedDirty = G.editor.dirty;
         processKeypress();
         
         if (G.currentMode == DEBUG) {
-            if (G.dirty != storedDirty) {
-                B.regenerateStack = true;
+            if (G.editor.dirty != storedDirty) {
+                G.B.regenerateStack = true;
                 setStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
             }
 
-            if (B.debugMode == STEP_BY_STEP) {
-                    processBrainFuck(&B);
+            if (G.B.debugMode == STEP_BY_STEP) {
+                    processBrainFuck(&G.B);
                 }
-            else if (B.debugMode == CONTINUE) {
-                while (B.debugMode == CONTINUE) {
-                    processBrainFuck(&B);
+            else if (G.B.debugMode == CONTINUE) {
+                while (G.B.debugMode == CONTINUE) {
+                    processBrainFuck(&G.B);
                 }
             }
-            else if (B.debugMode == STEPPING_OUT) {
+            else if (G.B.debugMode == STEPPING_OUT) {
                 //current implementation will stop at first closing bracket
-                int curStackSize = B.bracketStack.top;
-                while (B.debugMode == STEPPING_OUT && B.bracketStack.top != curStackSize - 1) {
-                    processBrainFuck(&B);
+                int curStackSize = G.B.bracketStack.top;
+                while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
+                    processBrainFuck(&G.B);
                 }
-                B.debugMode = PAUSED;
+                G.B.debugMode = PAUSED;
             }
         }
     }
@@ -287,7 +268,7 @@ int main(int argc, char* argv[]) {
 }
 
 //terminal
-void enableRawMode(){
+void enableRawMode() {
     if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1){
         die("tcgetattr");
     }
@@ -307,13 +288,13 @@ void enableRawMode(){
     }
 }
 
-void disableRawMode(void){
+void disableRawMode(void) {
     if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &G.orig_termio) == -1){
         die("tcsetattr");   
     }
 }
 
-void die(const char* s){ //error handling
+void die(const char* s) { //error handling
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
     perror(s);
@@ -321,7 +302,7 @@ void die(const char* s){ //error handling
     exit(1);
 }
 
-int readKey(void){
+int readKey(void) {
     int nread;
     char c;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1){
@@ -411,7 +392,7 @@ int readKey(void){
     }
 }
 
-int getWindowSize (int* rows, int* cols){
+int getWindowSize (int* rows, int* cols) {
     struct winsize ws;
     if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;  //try move cursor a ton
@@ -424,7 +405,7 @@ int getWindowSize (int* rows, int* cols){
     }
 }
 
-int getCursorPosition(int* rows, int* cols){
+int getCursorPosition(int* rows, int* cols) {
     char buf[32];
     unsigned int i = 0;
     if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1; //ask terminal for cursor loc
@@ -441,27 +422,6 @@ int getCursorPosition(int* rows, int* cols){
 
 
 //row operation
-void editorInsertRow(int at, char* s, size_t len){
-    if (at < 0 || at > G.numRows) return;
-    // allocate memory for a new row
-    erow* temp = realloc(G.row, sizeof(erow) * (G.numRows + 1));
-    if (temp == NULL) die("editorInserRow");
-    G.row = temp;
-    memmove(&G.row[at + 1], &G.row[at], sizeof(erow) * (G.numRows - at));
-
-    G.row[at].size = len;
-    G.row[at].chars = (char*) malloc(len + 1);
-    memcpy(G.row[at].chars, s, len);
-    G.row[at].chars[len] = '\0'; //we do this manually cuz we stripped off the end of the line (\r\n)
-
-    G.row[at].rsize = 0;
-    G.row[at].render = NULL;
-    windowUpdateRow(&G.row[at]);
-
-    G.numRows++;
-    G.dirty++;
-}
-
 void windowInsertRow(int at, char* s, size_t len, window* this) {
     if (at < 0 || at > this->numRows) return;
     //allocate memory for a new row
@@ -477,13 +437,13 @@ void windowInsertRow(int at, char* s, size_t len, window* this) {
 
     this->row[at].rsize = 0;
     this->row[at].render = NULL;
-    //editorUpdateRow(&E.row[at]);
+    windowUpdateRow(&(this->row[at]));
 
     this->numRows++;
     this->dirty++;
 }
 
-void windowUpdateRow(erow* row){
+void windowUpdateRow(erow* row) {
     int j;
     int tabs = 0;
     int extraSpace = 0;
@@ -513,7 +473,7 @@ void windowUpdateRow(erow* row){
     row->rsize = idx;
 }
 
-int windowRowCxToRx(erow* row, int cx){
+int windowRowCxToRx(erow* row, int cx) {
     int rx = 0;
     for (int j = 0; j < cx; j++) { //check everything before cx for tabs
         if (row->chars[j] == '\t') {
@@ -526,7 +486,7 @@ int windowRowCxToRx(erow* row, int cx){
     return rx;
 }
 
-void windowRowInsertChar(erow* row, int at, int c){
+void windowRowInsertChar(erow* row, int at, int c) {
     if (at < 0 || at > row->size) at = row->size; //validate at just in case
     char* temp = realloc(row->chars, row->size + 2); //2 cuz the inserted char, and cuz size doesn't include null terminator
     if (temp == NULL) die("windowRowInsertChar");
@@ -536,46 +496,33 @@ void windowRowInsertChar(erow* row, int at, int c){
     row->size++;
     row->chars[at] = c;
     windowUpdateRow(row);
-    G.dirty++;
 }
 
-void windowRowDelChar(erow* row, int at){
+void windowRowDelChar(erow* row, int at) {
     if (at < 0 || at >= row->size) return;
     memmove(&row->chars[at], &row->chars[at + 1], row->size - at);
     row->size--;
     windowUpdateRow(row);
-    G.dirty++;
 }
 
-void freeRow(erow* row){
+void freeRow(erow* row) {
     free (row->chars);
     free (row->render);
 }
 
-void windowDelRow(int at){
-    if (at < 0 || at >= G.numRows) return;
-    freeRow(&G.row[at]);
-    memmove(&G.row[at], &G.row[at + 1], sizeof(erow) * (G.numRows - at - 1));
-    G.numRows--;
-    G.dirty++;
+void windowDelRow(int at, window* this) {
+    if (at < 0 || at >= this->numRows) return;
+    freeRow(&this->row[at]);
+    memmove(&this->row[at], &this->row[at + 1], sizeof(erow) * (this->numRows - at - 1));
+    this->numRows--;
 }
 
-void windowRowAppendString(erow * row, char* s, size_t len){
+void windowRowAppendString(erow * row, char* s, size_t len) {
     row->chars = (char*) realloc(row->chars, row->size + len + 1);
     memcpy(&row->chars[row->size], s, len);
     row->size += len;
     row->chars[row->size] = '\0';
     windowUpdateRow(row);
-    G.dirty++;
-}
-
-//editor operation
-void editorInsertChar(int c){
-    if (G.cy == G.numRows) {
-        editorInsertRow(G.numRows,"", 0);
-    }
-    windowRowInsertChar(&G.row[G.cy], G.cx, c);
-    G.cx++;
 }
 
 void windowInsertChar(int c, window* this) {
@@ -584,37 +531,39 @@ void windowInsertChar(int c, window* this) {
     }
     windowRowInsertChar(&this->row[this->cy], this->cx, c);
     this->cx++;
+    this->dirty++;
 }
 
-void windowInsertNewLine(){
-    if (G.cx == 0) {
-        editorInsertRow(G.cy, "", 0);
+void windowInsertNewLine(window* this){
+    if (this->cx == 0) {
+        windowInsertRow(this->cy, "", 0, &G.editor);
     }
     else {
-        erow* row = &G.row[G.cy];
-        editorInsertRow(G.cy + 1, &row->chars[G.cx], row->size - G.cx);
-        row = &G.row[G.cy]; //in case realloc change address of things
-        row->size = G.cx;
+        erow* row = &this->row[this->cy];
+        windowInsertRow(this->cy + 1, &row->chars[this->cx], row->size - this->cx, this);
+        row = &this->row[this->cy]; //in case realloc change address of things
+        row->size = this->cx;
         row->chars[row->size] = '\0';
         windowUpdateRow(row);
     }
-    G.cy++;
-    G.cx = 0;
+    this->cy++;
+    this->cx = 0;
 }
 
-void windowDelChar(){
-    if (G.cy == G.numRows) return;
-    if (G.cx == 0 && G.cy == 0) return;
-    if (G.cx > 0) {
-        windowRowDelChar(&G.row[G.cy], G.cx - 1);
-        G.cx--;
+void windowDelChar(window* this){
+    if (this->cy == this->numRows) return;
+    if (this->cx == 0 && this->cy == 0) return;
+    if (this->cx > 0) {
+        windowRowDelChar(&this->row[this->cy], this->cx - 1);
+        this->cx--;
     }
     else {
-        G.cx = G.row[G.cy - 1].size;
-        windowRowAppendString(&G.row[G.cy - 1], G.row[G.cy].chars, G.row[G.cy].size);
-        windowDelRow(G.cy);
-        G.cy--;
+        this->cx = this->row[this->cy - 1].size;
+        windowRowAppendString(&this->row[this->cy - 1], this->row[this->cy].chars, this->row[this->cy].size);
+        windowDelRow(this->cy, this);
+        this->cy--;
     }
+    this->dirty++;
 }
 
 //file i/o
@@ -632,27 +581,27 @@ void editorOpen(char* fileName){
         while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ){ //strip off change line
             lineLen--;
         }
-        editorInsertRow(G.numRows, line, lineLen);
+        windowInsertRow(G.editor.numRows, line, lineLen, &G.editor);
     }
 
     free(line);
     fclose(fp);
-    G.dirty = 0;
+    G.editor.dirty = 0;
 }
 
-char* editorRowToString(int* bufLen){
+char* windowRowToString(int* bufLen, window* this){
     int totalLen = 0;
     int j;
-    for (j = 0; j < G.numRows; j++) {
-        totalLen += G.row[j].size + 1;  //+ 1 is for \n
+    for (j = 0; j < this->numRows; j++) {
+        totalLen += this->row[j].size + 1;  //+ 1 is for \n
     }
     if (bufLen != NULL)*bufLen = totalLen;
 
     char* buf = malloc(totalLen);
     char* p = buf;
-    for (j = 0; j < G.numRows; j++) {
-        memcpy(p, G.row[j].chars, G.row[j].size);
-        p += G.row[j].size;
+    for (j = 0; j < this->numRows; j++) {
+        memcpy(p, this->row[j].chars, this->row[j].size);
+        p += this->row[j].size;
         *p = '\n';
         p++;
     }
@@ -669,7 +618,7 @@ void editorSave(){
     }
 
     int len;
-    char* buf = editorRowToString(&len);
+    char* buf = windowRowToString(&len, &G.editor);
 
     int fd = open(G.fileName, O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
     if (fd != -1) {
@@ -678,7 +627,7 @@ void editorSave(){
             if (write(fd, buf, len) == len) {
                 close(fd);
                 free(buf);
-                G.dirty = 0;
+                G.editor.dirty = 0;
                 setStatusMessage("%d bytes written to disk", len);
                 return;
             }
@@ -691,7 +640,7 @@ void editorSave(){
 }
 
 //input
-void processKeypress(){
+void processKeypress() {
     static int curQuitTimes = QUIT_TIMES;   //preserve value even after going out of scope. Don't get re-initialized
     
     int c = readKey();
@@ -701,10 +650,10 @@ void processKeypress(){
 
     switch (c) {
         case '\r':
-            windowInsertNewLine();
+            windowInsertNewLine(&G.editor);
             break;
         case CTRL_KEY('q'):
-            if (G.dirty && curQuitTimes > 0) {
+            if (G.editor.dirty && curQuitTimes > 0) {
                 setStatusMessage("Warning!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", curQuitTimes);
                 curQuitTimes--;
                 return;
@@ -719,73 +668,76 @@ void processKeypress(){
         case CTRL_KEY('c'):
             //manually set brainfuck cursor
              if (G.currentMode == DEBUG) {
-                B.instX = G.cx;
-                B.instY = G.cy;
-                B.regenerateStack = true;
-                setStatusMessage("Instruction jumped to (%d, %d)", B.instX, B.instY);
+                G.B.instX = G.editor.cx;
+                G.B.instY = G.editor.cy;
+                G.B.regenerateStack = true;
+                setStatusMessage("Instruction jumped to (%d, %d)", G.B.instX, G.B.instY);
              }
             break;
         case PAGE_UP:
         case PAGE_DOWN:
         {
+            //move to top/bottom of page, then scroll an entire page
             if (c == PAGE_UP) {
-                G.cy = G.rowOff;
+                G.editor.cy = G.editor.startRowOrCell;
             }
             else if (c == PAGE_DOWN) {
-                G.cy = G.rowOff + G.screenRows - 1;
-                if (G.cy > G.numRows) G.cy = G.numRows;
+                G.editor.cy = G.editor.startRowOrCell + G.editor.windowRows - 1;
+                if (G.editor.cy > G.editor.numRows) G.editor.cy = G.editor.numRows;
             }
 
-            for (int times = G.screenRows - 1; times > 0; times--) 
-                moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN);
+            for (int times = G.editor.windowRows - 1; times > 0; times--) {
+                moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.editor);
+        }
         }
         case HOME_KEY:
-            G.cx = 0;
+            G.editor.cx = 0;
             break;
         case END_KEY:
-            if (G.cy < G.numRows)
-                G.cx = G.row[G.cy].size;
+            if (G.editor.cy < G.editor.numRows) {
+                G.editor.cx = G.editor.row[G.editor.cy].size;
+            }
             break;
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT);
-            windowDelChar();
+            if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.editor);
+            windowDelChar(&G.editor);
             break;
         case ARROW_UP:
         case ARROW_LEFT:
         case ARROW_DOWN:
         case ARROW_RIGHT:
-            moveCursorChecking(c);
+            moveCursorChecking(c, &G.editor);
             break;
         case CTRL_UP:
         case CTRL_LEFT:
             while (1){
-                moveCursorChecking(ARROW_LEFT);
-                char curChar = G.row[G.cy].chars[G.cx -1];  //there are so many edge cases and stuff to check, like "", &&
+                moveCursorChecking(ARROW_LEFT, &G.editor);
+                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
                 if (curChar == ' ' || curChar == '(' ||
                     curChar == ')' || curChar == '[' ||
                     curChar == ']' || curChar == '.' ||
                     curChar == '#' || curChar == '"' ||
                     curChar == '\t' ||
-                    G.row[G.cy].chars[G.cx] == '"'||
-                    G.cx == 0) break;
+                    G.editor.row[G.editor.cy].chars[G.editor.cx] == '"'||
+                    G.editor.cx == 0) break;
             }
             break;
         case CTRL_DOWN:
         case CTRL_RIGHT:
             while (1){
-                moveCursorChecking(ARROW_RIGHT);
-                char curChar = G.row[G.cy].chars[G.cx];
+                moveCursorChecking(ARROW_RIGHT, &G.editor);
+                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
                 if (curChar == ' ' || curChar == '(' ||
                     curChar == ')' || curChar == '[' ||
                     curChar == ']' || curChar == '.' ||
                     curChar == '&' || curChar == ',' ||
                     curChar == ':' || curChar == '"' ||
                     curChar == '\t' ||
-                    (G.row[G.cy].chars[G.cx-1] == '/' && G.row[G.cy].chars[G.cx-2] == '/')||
-                    G.row[G.cy].chars[G.cx-1] == '"'||
-                    G.cx == G.row[G.cy].size ) break;
+                    (G.editor.row[G.editor.cy].chars[G.editor.cx-1] == '/' && G.editor.row[G.editor.cy].chars[G.editor.cx-2] == '/')||
+                    G.editor.row[G.editor.cy].chars[G.editor.cx-1] == '"'||
+                    G.editor.cx == G.editor.row[G.editor.cy].size ) break;
             }
             break;
         case F1_FUNCTION_KEY:
@@ -798,31 +750,31 @@ void processKeypress(){
             break;
         case F5_FUNCTION_KEY:
             if (G.currentMode == EDIT) {
-                resetBrainfuck(&B);
+                resetBrainfuck(&G.B);
                 modeSwitcher(DEBUG);
                 globalRefreshScreen();
                 
             }
             else if (G.currentMode != EDIT) {
                 //continue
-                B.debugMode = CONTINUE;
+                G.B.debugMode = CONTINUE;
             }
             break;
         case F6_FUNCTION_KEY:
             //step into
             if (G.currentMode == DEBUG) {
-                B.debugMode = STEP_BY_STEP;
+                G.B.debugMode = STEP_BY_STEP;
             }
             break;
         case F7_FUNCTION_KEY: {
                 //step out
                 if (G.currentMode == DEBUG) {
-                    if (B.regenerateStack) {
-                        regenerateBracketStack(B.instX, B.instY, &B);
+                    if (G.B.regenerateStack) {
+                        regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
                     }
-                    bool inALoop = !coordStackIsEmpty(&B.bracketStack);
+                    bool inALoop = !coordStackIsEmpty(&G.B.bracketStack);
                     if (inALoop) {
-                        B.debugMode = STEPPING_OUT;
+                        G.B.debugMode = STEPPING_OUT;
                     }
                     else {
                         setStatusMessage("Not in loop");
@@ -833,10 +785,10 @@ void processKeypress(){
         case F8_FUNCTION_KEY:
             //restart
             if (G.currentMode != EDIT) {
-                G.cx = 0;
-                G.cy = 0;
-                resetBrainfuck(&B);
-                resetWindow(&O);
+                G.editor.cx = 0;
+                G.editor.cy = 0;
+                resetBrainfuck(&G.B);
+                resetWindow(&G.O);
                 setStatusMessage("");
                 globalRefreshScreen();
             }
@@ -845,8 +797,8 @@ void processKeypress(){
             //stop
             if (G.currentMode != EDIT) {
                 modeSwitcher(EDIT);
-                resetBrainfuck(&B);
-                resetWindow(&O);
+                resetBrainfuck(&G.B);
+                resetWindow(&G.O);
                 setStatusMessage("");
             }
             break;
@@ -858,115 +810,115 @@ void processKeypress(){
         case '(':
         case '{':
         case '[': {
-            editorInsertChar(c);
-            char curChar = G.row[G.cy].chars[G.cx];
+            windowInsertChar(c, &G.editor);
+            char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
             //if cx is at end of row, curChar would be '\0'
             if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
                 switch (c) {
                     case '(':
-                        editorInsertChar(')');
+                        windowInsertChar(')', &G.editor);
                         break;
                     case '{':
-                        editorInsertChar('}');
+                        windowInsertChar('}', &G.editor);
                         break;
                      case '[':
-                        editorInsertChar(']');
+                        windowInsertChar(']', &G.editor);
                         break;
                     case '"':
                     case 39:
                         if (curChar == c) {
-                            moveCursorChecking(ARROW_RIGHT);
+                            moveCursorChecking(ARROW_RIGHT, &G.editor);
                         }
                         else {
-                            editorInsertChar(c);
+                            windowInsertChar(c, &G.editor);
                         }
                         break;
                 }
-                moveCursorChecking(ARROW_LEFT);
+                moveCursorChecking(ARROW_LEFT, &G.editor);
             }
             break;
         }
         case ')':
         case '}':
         case ']': {
-            if (G.cy < G.numRows) {
-                char curChar = G.row[G.cy].chars[G.cx];
+            if (G.editor.cy < G.editor.numRows) {
+                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
                 if (curChar == c) {
-                    moveCursorChecking(ARROW_RIGHT);
+                    moveCursorChecking(ARROW_RIGHT, &G.editor);
                 }
                 else {
-                    editorInsertChar(c);
+                    windowInsertChar(c, &G.editor);
                 }
             }
             else {
-                editorInsertChar(c);
+                windowInsertChar(c, &G.editor);
             }
             break;
         }
         case '"':
         case 39: {    // this char is '
-            if (G.cy < G.numRows) {
-                char curChar = G.row[G.cy].chars[G.cx];
+            if (G.editor.cy < G.editor.numRows) {
+                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
                 if (curChar == c) {
-                    moveCursorChecking(ARROW_RIGHT);
+                    moveCursorChecking(ARROW_RIGHT, &G.editor);
                 }
                 else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
-                    editorInsertChar(c);
-                    editorInsertChar(c);
-                    moveCursorChecking(ARROW_LEFT);
+                    windowInsertChar(c, &G.editor);
+                    windowInsertChar(c, &G.editor);
+                    moveCursorChecking(ARROW_LEFT, &G.editor);
                 }
                 else {
-                    editorInsertChar(c);
+                    windowInsertChar(c, &G.editor);
                 }
             }
             else {
-                editorInsertChar(c);
+                windowInsertChar(c, &G.editor);
             }
             break;
         }
         default:
             if ( (c > 31 && c < 127) || c == '\t') {
-                editorInsertChar(c);
+                windowInsertChar(c, &G.editor);
             }
             break;
     }
     curQuitTimes = QUIT_TIMES;
 }
 
-void moveCursorChecking(int key){
-    erow* row = (G.cy >= G.numRows) ? NULL : & G.row[G.cy];
+void moveCursorChecking(int key, window* this){
+    erow* row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
 
     switch (key) {
         case ARROW_UP:
-            if (G.cy > 0) G.cy--;
+            if (this->cy > 0) this->cy--;
             break;
         case ARROW_LEFT:
-            if (G.cx != 0) {
-                G.cx--;
+            if (this->cx != 0) {
+                this->cx--;
             } 
-            else if (G.cy > 0) {
-                G.cy--;
-                G.cx = G.row[G.cy].size;
+            else if (this->cy > 0) {
+                this->cy--;
+                this->cx = this->row[this->cy].size;
             }
             break;
         case ARROW_DOWN:
-            if (G.cy < G.numRows) G.cy++;
+            if (this->cy < this->numRows) this->cy++;
             break;
         case ARROW_RIGHT:
-            if (row && G.cx < row->size ) {
-                G.cx++;
+            if (row && this->cx < row->size ) {
+                this->cx++;
             }
-            else if (G.cy < G.numRows && G.cx == row->size) {
-                G.cy++;
-                G.cx = 0;
+            else if (this->cy < this->numRows && this->cx == row->size) {
+                this->cy++;
+                this->cx = 0;
             }
             break;
     }
     //correct cursor if needed
-    row = (G.cy >= G.numRows) ? NULL : & G.row[G.cy];
+    row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
     int rowLen = row ? row->size : 0;
-    if (G.cx > rowLen) {
-        G.cx = rowLen;
+    if (this->cx > rowLen) {
+        this->cx = rowLen;
     }
 }
 
@@ -1019,31 +971,31 @@ char* promptInput(char * prompt, int inputSizeLimit){
 }
 
 //output
-void windowScroll(){
+void windowScroll(window* this) {
     //first process tabs. Each time E.cx get change, we will get to here, and then calculate the correct E.rx to show
-    G.rx = 0;
-    if (G.cy < G.numRows) {
-        G.rx = windowRowCxToRx(&G.row[G.cy], G.cx);
+    this->rx = 0;
+    if (this->cy < this->numRows) {
+        this->rx = windowRowCxToRx(&this->row[this->cy], this->cx);
     }
 
     //now is actual scrolling
-    if (G.cy < G.rowOff) {
-        G.rowOff = G.cy;
+    if (this->cy < this->startRowOrCell) {
+        this->startRowOrCell = this->cy;
     }
-    if (G.cy >= G.rowOff + G.screenRows) {
-        G.rowOff = G.cy - G.screenRows + 1;
+    if (this->cy >= this->startRowOrCell + this->windowRows) {
+        this->startRowOrCell = this->cy - this->windowRows + 1;
     }
 
-    if (G.rx < G.colOff) {
-        G.colOff = G.rx;
+    if (this->rx < this->startCol) {
+        this->startCol = this->rx;
     }
-    if (G.rx >= G.colOff + G.screenCols) {
-        G.colOff = G.rx - G.screenCols + 1;
+    if (this->rx >= this->startCol + this->windowCols) {
+        this->startCol = this->rx - this->windowCols + 1;
     }
 }
 
 void globalRefreshScreen(){
-    windowScroll();
+    windowScroll(&G.editor);
 
     struct abuf ab = ABUF_INIT;
 
@@ -1061,7 +1013,8 @@ void globalRefreshScreen(){
     drawStatusBar(&ab);
     drawMessageBar(&ab);
     
-    basicMoveCursor(&ab, G.rx - G.colOff + 1, G.cy - G.rowOff + 1);
+    //do smth diff when we allow for diff cursor
+    basicMoveCursor(&ab, G.editor.rx - G.editor.startCol + 1, G.editor.cy - G.editor.startRowOrCell + 1);
     
     abAppend(&ab, "\x1b[?25h", 6);
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -1071,21 +1024,21 @@ void globalRefreshScreen(){
 
 void drawEditorRows(struct abuf * ab) {
     abAppend(ab, "\x1b[H", 3);  //moves cursor position to 0,0
-    for (int y = 0; y < G.screenRows; y++){
-        int fileRow = G.rowOff + y;
-        if (fileRow >= G.numRows) {
-            if (G.numRows == 0 && y == G.screenRows / 3) {  //welcome message
+    for (int y = 0; y < G.editor.windowRows; y++){
+        int fileRow = G.editor.startRowOrCell + y;
+        if (fileRow >= G.editor.numRows) {
+            if (G.editor.numRows == 0 && y == G.editor.windowRows / 3) {  //welcome message
                 char welcome[80];
                 int welcomelen = snprintf(welcome, sizeof(welcome), "Michael's Brainfuck IDE -- version %s", MICHAEL_IDE_VER);
 
-                int padding = (G.screenCols - welcomelen) / 2;
+                int padding = (G.editor.windowCols - welcomelen) / 2;
                 if (padding != 0) {
                     abAppend(ab, "~", 1);
                     padding--;
                 }
                 for (int i = padding; i > 0; i--) abAppend(ab, " ", 1);
 
-                if (welcomelen > G.screenCols) welcomelen = G.screenCols;
+                if (welcomelen > G.editor.windowCols) welcomelen = G.editor.windowCols;
                 abAppend(ab, welcome, welcomelen);
             }
             else {
@@ -1093,13 +1046,13 @@ void drawEditorRows(struct abuf * ab) {
             }
         }
         else {
-            int len = G.row[fileRow].rsize - G.colOff;
+            int len = G.editor.row[fileRow].rsize - G.editor.startCol;
             if (len < 0) len = 0; //just display nothing
-            if (len > G.screenCols) len = G.screenCols;
+            if (len > G.editor.windowCols) len = G.editor.windowCols;
             //abAppend(ab, &E.row[fileRow].render[E.colOff], len);
             //basic syntax highlighting
-            char* lineToPrint = &G.row[fileRow].render[G.colOff];
-            int rxOfInst = windowRowCxToRx(&G.row[fileRow] , B.instX);
+            char* lineToPrint = &G.editor.row[fileRow].render[G.editor.startCol];
+            int rxOfInst = windowRowCxToRx(&G.editor.row[fileRow] , G.B.instX);
             for (int j = 0; j < len; j++) {
                 switch(lineToPrint[j]){
                     case '>':
@@ -1131,7 +1084,7 @@ void drawEditorRows(struct abuf * ab) {
                         abAppend(ab, "\x1b[34m", 5);
                         break;
                 }
-                if (G.currentMode == DEBUG && y == B.instY && rxOfInst == G.colOff + j) {
+                if (G.currentMode == DEBUG && y == G.B.instY && rxOfInst == G.editor.startCol + j) {
                     abAppend(ab, "\x1b[7m", 4);
                 }
                 abAppend(ab, &lineToPrint[j], 1);
@@ -1145,11 +1098,11 @@ void drawEditorRows(struct abuf * ab) {
 }
 
 void drawBorder(struct abuf * ab){
-    basicMoveCursor(ab, G.screenCols + 1, 0);
-    for (int y = 0; y < G.screenRows; y++) {
+    basicMoveCursor(ab, G.editor.windowCols + 1, 0);
+    for (int y = 0; y < G.editor.windowRows; y++) {
         abAppend(ab, "|\x1b[D\x1b[B", 7);
     }
-    basicMoveCursor(ab, 0, G.screenRows + 1);
+    basicMoveCursor(ab, 0, G.editor.windowRows + 1);
     for (int x = 0; x < G.fullScreenCols; x++) {
         abAppend(ab, "=", 1);
     }
@@ -1160,12 +1113,12 @@ void drawDataArray(struct abuf * ab){
 
     char buf[10];
     
-    int locationInArray = B.arrayIndex;
+    int locationInArray = G.B.arrayIndex;
     for(int i = 0; i < 16; i++) {
         if (i == locationInArray) {
             abAppend(ab, "\x1b[7m", 4);
         }
-        snprintf(buf, sizeof(buf),"%3d|", B.dataArray[i]);
+        snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[i]);
         abAppend(ab, buf, strlen(buf));
         if (i == locationInArray) {
             abAppend(ab, "\x1b[m", 3);
@@ -1183,20 +1136,20 @@ void drawDataArray(struct abuf * ab){
 
 }
 
-void drawOutput(struct abuf * ab){
-    basicMoveCursor(ab, O.startPosX, O.startPosY);
-    for (int y = -1; y < O.windowRows; y++){
-        int outRow = O.startRowOrCell + y;
-        if (y == -1) {
+void drawOutput(struct abuf * ab) { //I maybe be able to make all 3 window-drawing function one big functions, but there is no advantage
+    basicMoveCursor(ab, G.O.startPosX, G.O.startPosY);
+    for (int y = -1; y < G.O.windowRows; y++){
+        int outRow = G.O.startRowOrCell + y;
+        if (y == -1) { //"Output:" in bold
             abAppend(ab, "\x1b[1;37m", 7);
             abAppend(ab, "Output:\x1b[0m", 11);
         }
         else {
-            if (outRow < O.numRows) {
-                int len = O.row[outRow].rsize - O.startCol;
+            if (outRow < G.O.numRows) {
+                int len = G.O.row[outRow].rsize - G.O.startCol;
                 if (len < 0) len = 0;
-                if (len > O.windowCols) len = O.windowCols;
-                abAppend(ab, &O.row[outRow].render[G.colOff], len);
+                if (len > G.O.windowCols) len = G.O.windowCols;
+                abAppend(ab, &G.O.row[outRow].render[G.O.startCol], len);
             }
             else {
                 abAppend(ab, "~", 1);
@@ -1212,11 +1165,11 @@ void drawStatusBar(struct abuf * ab){
     abAppend(ab, "\x1b[7m", 4); //invert color, will also use for selection
     //file name
     char status[80], rightStatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", (G.fileName ? G.fileName : "No Name"), G.numRows, (G.dirty ? "(modified)" : "") );
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", (G.fileName ? G.fileName : "No Name"), G.editor.numRows, (G.editor.dirty ? "(modified)" : "") );
     if (len > G.fullScreenCols) len = G.fullScreenCols;
     abAppend(ab, status, len);
 
-    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.cy+1 , G.numRows);
+    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.editor.cy + 1 , G.editor.numRows);
     //fill rest of screen with spaces for the white bar effect
     while (len < G.fullScreenCols) {
         if (G.fullScreenCols - len == rightLen) {
@@ -1262,26 +1215,18 @@ void basicMoveCursor(struct abuf * ab, int x, int y) {
 }
 
 //"member" functions
-void initEditor(){
+void globalInit(){
+    resetBrainfuck(&G.B);
+    resetWindow(&G.O);
+    resetWindow(&G.editor);
+
     G.currentMode = EDIT;
     updateWindowSizes();
 
-    G.cx = 0;
-    G.cy = 0;
-    G.rx = 0;
-    G.rowOff = 0;
-    G.colOff = 0;
-    G.numRows = 0;
-    G.row = NULL;
-
-    G.dirty = 0;
     G.fileName = NULL;
     G.statusMsg[0] = '\0';
     G.statusMsg_time = 0;
     G.activeWindow = TEXT_EDITOR;
-
-    resetBrainfuck(&B);
-    resetWindow(&O);
 }
 
 void abAppend(struct abuf * ab, const char * s, int len){
@@ -1303,6 +1248,7 @@ void resetWindow(window* this) {
     this->startRowOrCell = 0;
     this->startCol = 0;
     this->numRows = 0;
+    this->dirty = 0;
 }
 
 //windows
@@ -1317,27 +1263,33 @@ void updateWindowSizes(){
     if (getWindowSize(&G.fullScreenRows, &G.fullScreenCols) == -1) {
         die("getWindowSize");
     }
-    //consider clearing screen if screen size changed. Like, windows that isn't written doesn't get refreshed
+
+    G.editor.startPosX = 0;
+    G.editor.startPosY = 0;
     switch (G.currentMode) {
         case EDIT:
-            G.screenCols = G.fullScreenCols;
-            G.screenRows = G.fullScreenRows - 2;
+            G.editor.windowCols = G.fullScreenCols;
+            G.editor.windowRows = G.fullScreenRows - 2;
             break;
         case DEBUG:
-            G.screenRows = (G.fullScreenRows * 3) / 5 - 2;
-            G.screenCols = (G.fullScreenCols / 2) - 2;
+            G.editor.windowCols = (G.fullScreenCols / 2) - 2;
+            G.editor.windowRows = (G.fullScreenRows * 3) / 5 - 2;
             break;
     }
 
-    G.dataArray.startPosX = G.screenCols + 2;
+    //this doesn't really depend on the mode. They don't get printed in EDIT mode anyway
+    G.dataArray.startPosX = G.editor.windowCols + 2;
     G.dataArray.startPosY = 0;
-    O.startPosX = 0;
-    O.startPosY = G.screenRows + 2;
-    O.windowCols = G.fullScreenCols;
-    O.windowRows = G.fullScreenRows - G.screenRows - 1 - 2; //1 for border, 2 for status bar/message
+    G.dataArray.windowCols = G.fullScreenCols - G.editor.windowCols - 1;
+    G.dataArray.windowRows = G.editor. windowRows;
+
+    G.O.startPosX = 0;
+    G.O.startPosY = G.editor.windowRows + 2;
+    G.O.windowCols = G.fullScreenCols;
+    G.O.windowRows = G.fullScreenRows - G.editor.windowRows - 1 - 2; //1 for border, 2 for status bar/message
 }
 
-//Barinfuck
+//Barinfuck (this doesn't really need this ptr)
 void resetBrainfuck(brainFuckModule* this){
     this->arraySize = 30000;
     memset(this->dataArray, 0, 30000);  //turn this into dynamic later
@@ -1360,20 +1312,20 @@ void instForward() { //igores comments
     char nextChar = '\0';
     while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
             nextChar != '.' && nextChar != ',' && nextChar != '[' && nextChar != ']' && nextChar != '?') {
-        erow *row = (B.instY >= G.numRows) ? NULL : & G.row[B.instY];
+        erow *row = (G.B.instY >= G.editor.numRows) ? NULL : & G.editor.row[G.B.instY];
         //there is a - 1 because we don't need it to go 1 space outside the current line
-        if (row && B.instX < row->size - 1 ) {
-            B.instX++;
+        if (row && G.B.instX < row->size - 1 ) {
+            G.B.instX++;
         }
-        else if (B.instY < G.numRows && B.instX >= row->size - 1) {
-            B.instY++;
-            B.instX = 0;
+        else if (row && G.B.instX >= row->size - 1) {
+            G.B.instY++;
+            G.B.instX = 0;
         }
 
-        erow *nextRow = (B.instY >= G.numRows) ? NULL : & G.row[B.instY];
+        erow *nextRow = (G.B.instY >= G.editor.numRows) ? NULL : & G.editor.row[G.B.instY];
         if (nextRow == NULL) return;
-        if (B.instX < nextRow->size) {
-            nextChar = nextRow->chars[B.instX];
+        if (G.B.instX < nextRow->size) {
+            nextChar = nextRow->chars[G.B.instX];
         }
         else {
             nextChar = '\0';
@@ -1383,7 +1335,7 @@ void instForward() { //igores comments
 
 void processBrainFuck(brainFuckModule* this) {
     //validate inst
-    if (this->instY >= G.numRows || this->debugMode == EXECUTION_ENDED) {
+    if (this->instY >= G.editor.numRows || this->debugMode == EXECUTION_ENDED) {
         this->debugMode = EXECUTION_ENDED;
         
         //put this in status bar (running vs finished and if error encountered in permanat status bar)
@@ -1396,13 +1348,13 @@ void processBrainFuck(brainFuckModule* this) {
         return;
     }
 
-    if (this->instX >= G.row[this->instY].size) {
+    if (this->instX >= G.editor.row[this->instY].size) {
         //This gets triggered on empty line. Can also happen when user delete stuff in run time
         instForward();
         return;
     }
 
-    char curInst = G.row[this->instY].chars[this->instX];
+    char curInst = G.editor.row[this->instY].chars[this->instX];
 
     //validate data cell
     if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
@@ -1458,7 +1410,7 @@ void processBrainFuck(brainFuckModule* this) {
         case '.':
             //also check for change line and delete
             if (*dataPtr > 31 && *dataPtr < 127) {
-                windowInsertChar(*dataPtr, &O);
+                windowInsertChar(*dataPtr, &G.O);
             }
             instForward();
             this->instCounter++;
@@ -1529,18 +1481,18 @@ void processBrainFuck(brainFuckModule* this) {
                 instForward();
                 bool skipping = true;
                 while (skipping) {
-                    if (this->instY >= G.numRows) {
+                    if (this->instY >= G.editor.numRows) {
                         skipping = false;
                         this->debugMode = EXECUTION_ENDED;
                         setStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
                         this->errorMsg = "\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m";
                         break;
                     }
-                    if (this->instX >= G.row[this->instY].size) {
+                    if (this->instX >= G.editor.row[this->instY].size) {
                         instForward();
                         break;
                     }
-                    char curInst = G.row[this->instY].chars[this->instX];
+                    char curInst = G.editor.row[this->instY].chars[this->instX];
 
                     if (curInst == '[') {
                         coordStackPush(this->instX, this->instY, &stackForSkippping);
@@ -1613,15 +1565,15 @@ void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* thi
     bool skipping = true;
     while (!(this->instY == savedInstY && this->instX == savedInstX)) {
         //validate inst just in case
-        if (this->instY >= G.numRows) {
+        if (this->instY >= G.editor.numRows) {
             return;
         }
-        if (this->instX >= G.row[this->instY].size) {
+        if (this->instX >= G.editor.row[this->instY].size) {
             instForward();
             break;
         }
 
-        char curInst = G.row[this->instY].chars[this->instX];
+        char curInst = G.editor.row[this->instY].chars[this->instX];
         if (curInst == '[') {
             coordStackPush(this->instX, this->instY, &this->bracketStack);
         }
