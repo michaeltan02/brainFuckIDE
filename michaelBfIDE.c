@@ -19,7 +19,6 @@
 
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
-
 #define MICHAEL_IDE_VER "0.6"
 #define TAB_STOP 4
 #define QUIT_TIMES 2
@@ -63,7 +62,67 @@ enum topMode {
     EXECUTE
 };
 
-//data
+enum debuggerMode {
+    PAUSED = 0,
+    STEP_BY_STEP,
+    CONTINUE,
+    STEPPING_OUT,
+    EXECUTION_ENDED
+};
+
+//brainfuck stuff
+typedef struct coordinate {
+    int x;
+    int y;
+} coordinate;
+
+typedef struct coordStack {
+    int top;
+    int size;
+    coordinate stackArray[100];
+}coordStack;
+
+//stack member functions
+void coordStackInit(coordStack* this);
+bool coordStackPush(int x, int y, coordStack* this);
+void coordStackPop(coordStack* this);
+coordinate coordStackTop(coordStack* this); //return {0,0} if stack empty
+bool coordStackIsEmpty(coordStack* this);
+
+//brainfuck logic
+typedef struct brainFuckModule {
+    unsigned char dataArray[30000];
+    int arraySize;
+    int arrayIndex;
+
+    enum debuggerMode debugMode;
+
+    int instX, instY;
+    int instCounter;
+    
+    coordStack bracketStack;
+    bool regenerateStack;
+
+    char* errorMsg;
+} brainFuckModule;
+
+//brainFuck logic member functions
+void resetBrainfuck(brainFuckModule* this);
+void processBrainFuck(brainFuckModule* this);
+void instForward(); //igore comments
+void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this);
+
+//Windows and I/O
+//append buffer (dynamic string)
+struct abuf {
+    char* b;
+    int len;
+};
+
+#define ABUF_INIT {NULL, 0}
+void abAppend(struct abuf* ab, const char* s, int len);
+void abFree(struct abuf* ab) {free(ab->b);}
+
 typedef struct erow {
     int size;
     char* chars;
@@ -83,61 +142,46 @@ typedef struct window {
     int dirty;
 } window;
 
-//window
+
+//window member functions
 void resetWindow(window* this);
 
-//coordinate
-typedef struct coordinate {
-    int x;
-    int y;
-} coordinate;
+    //row operation
+void windowInsertRow(int at, char*s, size_t len, window* this);
+void windowUpdateRow(erow* row);
+int windowRowCxToRx(erow* row, int cx);
+void windowRowInsertChar(erow* row, int at, int c);
+void windowRowDelChar(erow* row, int at);
+void freeRow(erow* row);
+void windowDelRow(int at, window* this);
+void windowRowAppendString(erow* row, char* s, size_t len);
 
-#define COORD_INIT {0, 0}
+    //window operation (all need refactor)
+void windowInsertChar(int c, window* this);
+void windowInsertNewLine(window* this);
+void windowDelChar(window* this);
 
-//stack of coordinate
-typedef struct coordStack {
-    int top;
-    int size;
-    coordinate stackArray[100];
-}coordStack;
+    //file i/o
+void editorOpen(char* fileName);
+char* windowRowToString(int* bufLen, window* this);
+void editorSave();
 
-//stack
-void coordStackInit(coordStack* this);
-bool coordStackPush(int x, int y, coordStack* this);
-void coordStackPop(coordStack* this);
-coordinate coordStackTop(coordStack* this); //return {0,0} if stack empty
-bool coordStackIsEmpty(coordStack* this);
+    //input
+void processKeypress(void);
+void moveCursorChecking(int key, window* this);
+char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
 
-enum debuggerMode {
-    PAUSED = 0,
-    STEP_BY_STEP,
-    CONTINUE,
-    STEPPING_OUT,
-    EXECUTION_ENDED
-};
-
-//brainfuck module
-typedef struct brainFuckModule {
-    unsigned char dataArray[30000];
-    int arraySize;
-    int arrayIndex;
-
-    enum debuggerMode debugMode;
-
-    int instX, instY;
-    int instCounter;
-    
-    coordStack bracketStack;
-    bool regenerateStack;
-
-    char* errorMsg;
-} brainFuckModule;
-
-//brainFuck
-void resetBrainfuck(brainFuckModule* this);
-void processBrainFuck(brainFuckModule* this);
-void instForward(); //igore comments
-void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this);
+    //output
+void windowScroll(window* this);
+void globalRefreshScreen(void);
+void drawEditorRows(struct abuf* ab);
+void drawBorder(struct abuf* ab);
+void drawDataArray(struct abuf* ab);
+void drawOutput(struct abuf* ab);
+void drawStatusBar(struct abuf* ab);
+void drawMessageBar(struct abuf* ab);
+void setStatusMessage(const char* fmt, ...);
+void basicMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking
 
 struct globalEnvironment {
     //information
@@ -159,20 +203,10 @@ struct globalEnvironment {
     enum topMode currentMode;
 };
 
+//Global environmnet member functions
 void globalInit(void);
 
-//append buffer (dynamic string)
-struct abuf {
-    char* b;
-    int len;
-};
-
-#define ABUF_INIT {NULL, 0}
-void abAppend(struct abuf* ab, const char* s, int len);
-void abFree(struct abuf* ab) {free(ab->b);}
-
-/*** functions ***/
-//terminal
+    //terminal
 void enableRawMode(void);
 void disableRawMode(void);
 void die(const char* s);
@@ -180,49 +214,13 @@ int readKey(void);
 int getWindowSize (int* rows, int* cols);
 int getCursorPosition(int* rows, int* cols);
 
-//row operation
-void windowInsertRow(int at, char*s, size_t len, window* this);
-void windowUpdateRow(erow* row);
-int windowRowCxToRx(erow* row, int cx);
-void windowRowInsertChar(erow* row, int at, int c);
-void windowRowDelChar(erow* row, int at);
-void freeRow(erow* row);
-void windowDelRow(int at, window* this);
-void windowRowAppendString(erow* row, char* s, size_t len);
-
-//window operation (all need refactor)
-void windowInsertChar(int c, window* this);
-void windowInsertNewLine(window* this);
-void windowDelChar(window* this);
-
-//file i/o
-void editorOpen(char* fileName);
-char* windowRowToString(int* bufLen, window* this);
-void editorSave();
-
-//input
-void processKeypress(void);
-void moveCursorChecking(int key, window* this);
-char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
-
-//output
-void windowScroll(window* this);
-void globalRefreshScreen(void);
-void drawEditorRows(struct abuf* ab);
-void drawBorder(struct abuf* ab);
-void drawDataArray(struct abuf* ab);
-void drawOutput(struct abuf* ab);
-void drawStatusBar(struct abuf* ab);
-void drawMessageBar(struct abuf* ab);
-void setStatusMessage(const char* fmt, ...);
-void basicMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking
-
-//modes and windows
+    //modes and windows
 void modeSwitcher(enum topMode nextMode);
 void updateWindowSizes();
 
-/*** global ***/
-struct globalEnvironment G; //This can stay global. Just the windows need to be objects
+// One global struct. I can re-factor this to be declared in main and pass it to functions (just use this ptr explicity), but that provides no real advantage.
+// This would be the equivalnet of MainFrm in MFC, with the windows being children frames. 
+struct globalEnvironment G;
 
 int main(int argc, char* argv[]) {
 	enableRawMode();
