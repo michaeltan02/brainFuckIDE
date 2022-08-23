@@ -218,7 +218,7 @@ int getCursorPosition(int* rows, int* cols);
 void modeSwitcher(enum topMode nextMode);
 void updateWindowSizes();
 
-// One global struct. I can re-factor this to be declared in main and pass it to functions (just use this ptr explicity), but that provides no real advantage.
+// I can re-factor this global struct to be declared in main and pass it to functions (just use this ptr explicity), but that provides no real advantage for a one-person project of this size
 // This would be the equivalnet of MainFrm in MFC, with the windows being children frames. 
 struct globalEnvironment G;
 
@@ -1144,6 +1144,7 @@ void drawOutput(struct abuf * ab) { //I maybe be able to make all 3 window-drawi
         }
         else {
             if (outRow < G.O.numRows) {
+                //manually highlight cursor here
                 int len = G.O.row[outRow].rsize - G.O.startCol;
                 if (len < 0) len = 0;
                 if (len > G.O.windowCols) len = G.O.windowCols;
@@ -1407,13 +1408,26 @@ void processBrainFuck(brainFuckModule* this) {
             break;
         case '.':
             //also check for change line and delete
-            if (*dataPtr > 31 && *dataPtr < 127) {
-                windowInsertChar(*dataPtr, &G.O);
+            switch (*dataPtr) {
+                case '\r': //ASCII 13
+                    windowInsertNewLine(&G.O);
+                    break;
+                case 8: //backspace symbol
+                    windowDelChar(&G.O);
+                    break;
+                case '\x1b':
+                    break;
+                default:
+                    if ((*dataPtr > 31 && *dataPtr < 127) || *dataPtr =='\t') { //tab is ASCII 9
+                        windowInsertChar(*dataPtr, &G.O);
+                    }
+                    break;
             }
             instForward();
             this->instCounter++;
             break;
         case ',': {
+            //need a way to let user out of this. Make it so ESC let user cancel input but doesn't move inst
             char* userInput = NULL;
             bool validInput = false;
             while (userInput == NULL || !validInput) {
