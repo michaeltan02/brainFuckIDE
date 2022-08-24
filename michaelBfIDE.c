@@ -232,7 +232,7 @@ int main(int argc, char* argv[]) {
 
     setStatusMessage("HELP: Ctrl-S = Save | Ctrl-Q = quit");
 
-    while (1){
+    while (1) {
         globalRefreshScreen();
         int storedDirty = G.editor.dirty;
         processKeypress();
@@ -267,7 +267,7 @@ int main(int argc, char* argv[]) {
 
 //terminal
 void enableRawMode() {
-    if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1){
+    if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1) {
         die("tcgetattr");
     }
     atexit(disableRawMode); //it's cool that this can be placed anywhere
@@ -281,13 +281,13 @@ void enableRawMode() {
     raw.c_cc[VMIN] = 0;
     raw.c_cc[VTIME] = 1;    //adds a timeout to read (in 0.1s)
 
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1){   //TCSAFLUCH defines how the change is applied
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {   //TCSAFLUCH defines how the change is applied
         die("tcsetattr"); 
     }
 }
 
 void disableRawMode(void) {
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &G.orig_termio) == -1){
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &G.orig_termio) == -1) {
         die("tcsetattr");   
     }
 }
@@ -303,7 +303,7 @@ void die(const char* s) { //error handling
 int readKey(void) {
     int nread;
     char c;
-    while ((nread = read(STDIN_FILENO, &c, 1)) != 1){
+    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
         if(nread == -1 && errno != EAGAIN) die("read");
     }
     if (c == '\x1b') {
@@ -311,10 +311,10 @@ int readKey(void) {
         if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
         if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
-        if (seq[0] == '['){
+        if (seq[0] == '[') {
             if (seq[1] >= '0' && seq[1] <= '9') {
                 if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-                if (seq[2] == '~'){
+                if (seq[2] == '~') {
                     switch (seq[1]) {
                         case '1': return HOME_KEY;
                         case '3': return DEL_KEY;
@@ -392,7 +392,7 @@ int readKey(void) {
 
 int getWindowSize (int* rows, int* cols) {
     struct winsize ws;
-    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0){
+    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
         if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;  //try move cursor a ton
         return getCursorPosition(rows, cols);  
     }
@@ -532,7 +532,7 @@ void windowInsertChar(int c, window* this) {
     this->dirty++;
 }
 
-void windowInsertNewLine(window* this){
+void windowInsertNewLine(window* this) {
     if (this->cx == 0) {
         windowInsertRow(this->cy, "", 0, &G.editor);
     }
@@ -548,7 +548,7 @@ void windowInsertNewLine(window* this){
     this->cx = 0;
 }
 
-void windowDelChar(window* this){
+void windowDelChar(window* this) {
     if (this->cy == this->numRows) return;
     if (this->cx == 0 && this->cy == 0) return;
     if (this->cx > 0) {
@@ -565,7 +565,7 @@ void windowDelChar(window* this){
 }
 
 //file i/o
-void editorOpen(char* fileName){
+void editorOpen(char* fileName) {
     free(G.fileName);
     G.fileName = strdup(fileName);
 
@@ -576,7 +576,7 @@ void editorOpen(char* fileName){
     ssize_t lineLen; 
     
     while ((lineLen = getline(&line, &lineCap, fp)) != -1) {
-        while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ){ //strip off change line
+        while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ) { //strip off change line
             lineLen--;
         }
         windowInsertRow(G.editor.numRows, line, lineLen, &G.editor);
@@ -587,7 +587,7 @@ void editorOpen(char* fileName){
     G.editor.dirty = 0;
 }
 
-char* windowRowToString(int* bufLen, window* this){
+char* windowRowToString(int* bufLen, window* this) {
     int totalLen = 0;
     int j;
     for (j = 0; j < this->numRows; j++) {
@@ -606,7 +606,7 @@ char* windowRowToString(int* bufLen, window* this){
     return buf;
 }
 
-void editorSave(){
+void editorSave() {
     if (G.fileName == NULL) {
         G.fileName = promptInput("Save as (ESC to cancel): %s", 255);
         if (G.fileName == NULL) {
@@ -710,7 +710,7 @@ void processKeypress() {
             break;
         case CTRL_UP:
         case CTRL_LEFT:
-            while (1){
+            while (1) {
                 moveCursorChecking(ARROW_LEFT, &G.editor);
                 char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
                 if (curChar == ' ' || curChar == '(' ||
@@ -1134,7 +1134,8 @@ void drawDataArray(struct abuf * ab){
 
 }
 
-void drawOutput(struct abuf * ab) { //I maybe be able to make all 3 window-drawing function one big functions, but there is no advantage
+ //I maybe be able to make all 3 window-drawing function one big functions, but there is no advantage
+void drawOutput(struct abuf * ab) {
     basicMoveCursor(ab, G.O.startPosX, G.O.startPosY);
     for (int y = -1; y < G.O.windowRows; y++){
         int outRow = G.O.startRowOrCell + y;
@@ -1144,7 +1145,7 @@ void drawOutput(struct abuf * ab) { //I maybe be able to make all 3 window-drawi
         }
         else {
             if (outRow < G.O.numRows) {
-                //manually highlight cursor here
+                //manually highlight cursor here if it's not the active window
                 int len = G.O.row[outRow].rsize - G.O.startCol;
                 if (len < 0) len = 0;
                 if (len > G.O.windowCols) len = G.O.windowCols;
@@ -1158,7 +1159,7 @@ void drawOutput(struct abuf * ab) { //I maybe be able to make all 3 window-drawi
     }
 }
 
-void drawStatusBar(struct abuf * ab){
+void drawStatusBar(struct abuf * ab) {
     basicMoveCursor(ab, 0, G.fullScreenRows - 1);
     
     abAppend(ab, "\x1b[7m", 4); //invert color, will also use for selection
@@ -1184,7 +1185,7 @@ void drawStatusBar(struct abuf * ab){
     abAppend(ab, "\r\n", 2);
 }
 
-void setStatusMessage(const char * fmt, ...){
+void setStatusMessage(const char * fmt, ...) {
     //This is how you do function with varied amount of argument (variadic) like printf, 
     va_list ap;
     va_start(ap, fmt); //initalizes ap with start of variable list
@@ -1194,7 +1195,7 @@ void setStatusMessage(const char * fmt, ...){
     G.statusMsg_time = time(NULL); //current time, in seconds since midnight Jan 1, 1970
 }
 
-void drawMessageBar(struct abuf * ab){
+void drawMessageBar(struct abuf * ab) {
     abAppend(ab, "\x1b[7m", 4);
 
     abAppend(ab, "\x1b[K", 3);
@@ -1228,7 +1229,7 @@ void globalInit(){
     G.activeWindow = TEXT_EDITOR;
 }
 
-void abAppend(struct abuf * ab, const char * s, int len){
+void abAppend(struct abuf * ab, const char * s, int len) {
     char * new = (char *) realloc(ab->b, ab->len + len);
     if (new == NULL) return;
 
@@ -1251,14 +1252,14 @@ void resetWindow(window* this) {
 }
 
 //windows
-void modeSwitcher(enum topMode nextMode){
+void modeSwitcher(enum topMode nextMode) {
     G.currentMode = nextMode;
     write(STDOUT_FILENO, "\x1b[2J", 4);    //clear entire screen
     updateWindowSizes();
     globalRefreshScreen();
 }
 
-void updateWindowSizes(){
+void updateWindowSizes() { //Chaning window size in debug mode has some funky bugs
     if (getWindowSize(&G.fullScreenRows, &G.fullScreenCols) == -1) {
         die("getWindowSize");
     }
