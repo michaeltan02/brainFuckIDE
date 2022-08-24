@@ -1149,7 +1149,19 @@ void drawOutput(struct abuf * ab) {
                 int len = G.O.row[outRow].rsize - G.O.startCol;
                 if (len < 0) len = 0;
                 if (len > G.O.windowCols) len = G.O.windowCols;
-                abAppend(ab, &G.O.row[outRow].render[G.O.startCol], len);
+                //abAppend(ab, &G.O.row[outRow].render[G.O.startCol], len);
+
+                // highlights where cursor should be
+                // Problem is that highlight can only go on a place with character. So my best approximate is to hihglight just left of actual cursor
+                char* lineToPrint = &G.O.row[outRow].render[G.O.startCol];
+                G.O.rx = windowRowCxToRx(&G.O.row[outRow], G.O.cx);
+                for (int j = 0; j < len; j++) {
+                    if (G.activeWindow != OUTPUT && y == G.O.cy && G.E.startCol + j == G.O.rx - 1) {
+                        abAppend(ab, "\x1b[7m", 4);
+                    }
+                    abAppend(ab, &lineToPrint[j], 1);
+                    abAppend(ab, "\x1b[0m", 4);
+                }
             }
             else {
                 abAppend(ab, "~", 1);
@@ -1379,7 +1391,6 @@ void processBrainFuck(brainFuckModule* this) {
                 this->arrayIndex++;
                 instForward();
             }
-            this->instCounter++;
             break;
         case '<':
             if (this->arrayIndex - 1 < 0) {
@@ -1393,19 +1404,15 @@ void processBrainFuck(brainFuckModule* this) {
             else {
                 this->arrayIndex--;
                 instForward();
-                this->instCounter++;
             }
-            this->instCounter++;
             break;
         case '+':
             (*dataPtr)++;
             instForward();
-            this->instCounter++;
             break;
         case '-':
             (*dataPtr)--;
             instForward();
-            this->instCounter++;
             break;
         case '.':
             //also check for change line and delete
@@ -1425,13 +1432,12 @@ void processBrainFuck(brainFuckModule* this) {
                     break;
             }
             instForward();
-            this->instCounter++;
             break;
         case ',': {
             //need a way to let user out of this. Make it so ESC let user cancel input but doesn't move inst
             char* userInput = NULL;
             bool validInput = false;
-            while (userInput == NULL || !validInput) {
+            while (!validInput) {
                 userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
                 if(userInput) {
                     if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
@@ -1465,18 +1471,21 @@ void processBrainFuck(brainFuckModule* this) {
                         }
                     }
                     else {
-                        //we don't want to let user cancel this input
+                        //Something went wrong. promptInput shouldn't give something like this
                         validInput = false;
                         free(userInput);
                         userInput = NULL;
                     }
                 }
+                else {
+                    //user canceled. So just go back to editor and pause without doing anything
+                    this->debugMode = PAUSED;
+                    return;
+                }
             }
             free(userInput);
             userInput = NULL;
-
             instForward();
-            this->instCounter++;
             break;
         }
         case '[':
@@ -1565,6 +1574,7 @@ void processBrainFuck(brainFuckModule* this) {
     }
     //E.cy = this->instY; //need SOME way to make sure this process scroll the screen. How does CPUlator do it
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
+    this->instCounter++;
 }
 
 void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this) {
