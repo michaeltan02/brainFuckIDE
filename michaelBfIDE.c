@@ -174,7 +174,7 @@ char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no 
     //output
 void windowScroll(window* this);
 void globalRefreshScreen(void);
-void drawEditorRows(struct abuf* ab);
+void drawEditor(struct abuf* ab);
 void drawBorder(struct abuf* ab);
 void drawDataArray(struct abuf* ab);
 void drawOutput(struct abuf* ab);
@@ -190,7 +190,7 @@ struct globalEnvironment {
     int fullScreenCols;
     
     //windows
-    window editor;
+    window E;
     window O;
     window dataArray;
     brainFuckModule B;
@@ -234,11 +234,11 @@ int main(int argc, char* argv[]) {
 
     while (1) {
         globalRefreshScreen();
-        int storedDirty = G.editor.dirty;
+        int storedDirty = G.E.dirty;
         processKeypress();
         
         if (G.currentMode == DEBUG) {
-            if (G.editor.dirty != storedDirty) {
+            if (G.E.dirty != storedDirty) {
                 G.B.regenerateStack = true;
                 setStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
             }
@@ -534,7 +534,7 @@ void windowInsertChar(int c, window* this) {
 
 void windowInsertNewLine(window* this) {
     if (this->cx == 0) {
-        windowInsertRow(this->cy, "", 0, &G.editor);
+        windowInsertRow(this->cy, "", 0, &G.E);
     }
     else {
         erow* row = &this->row[this->cy];
@@ -579,12 +579,12 @@ void editorOpen(char* fileName) {
         while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ) { //strip off change line
             lineLen--;
         }
-        windowInsertRow(G.editor.numRows, line, lineLen, &G.editor);
+        windowInsertRow(G.E.numRows, line, lineLen, &G.E);
     }
 
     free(line);
     fclose(fp);
-    G.editor.dirty = 0;
+    G.E.dirty = 0;
 }
 
 char* windowRowToString(int* bufLen, window* this) {
@@ -616,7 +616,7 @@ void editorSave() {
     }
 
     int len;
-    char* buf = windowRowToString(&len, &G.editor);
+    char* buf = windowRowToString(&len, &G.E);
 
     int fd = open(G.fileName, O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
     if (fd != -1) {
@@ -625,7 +625,7 @@ void editorSave() {
             if (write(fd, buf, len) == len) {
                 close(fd);
                 free(buf);
-                G.editor.dirty = 0;
+                G.E.dirty = 0;
                 setStatusMessage("%d bytes written to disk", len);
                 return;
             }
@@ -648,10 +648,10 @@ void processKeypress() {
 
     switch (c) {
         case '\r':
-            windowInsertNewLine(&G.editor);
+            windowInsertNewLine(&G.E);
             break;
         case CTRL_KEY('q'):
-            if (G.editor.dirty && curQuitTimes > 0) {
+            if (G.E.dirty && curQuitTimes > 0) {
                 setStatusMessage("Warning!!! File has unsaved changes. Press Ctrl-Q %d more times to quit.", curQuitTimes);
                 curQuitTimes--;
                 return;
@@ -666,8 +666,8 @@ void processKeypress() {
         case CTRL_KEY('c'):
             //manually set brainfuck cursor
              if (G.currentMode == DEBUG) {
-                G.B.instX = G.editor.cx;
-                G.B.instY = G.editor.cy;
+                G.B.instX = G.E.cx;
+                G.B.instY = G.E.cy;
                 G.B.regenerateStack = true;
                 setStatusMessage("Instruction jumped to (%d, %d)", G.B.instX, G.B.instY);
              }
@@ -677,65 +677,65 @@ void processKeypress() {
         {
             //move to top/bottom of page, then scroll an entire page
             if (c == PAGE_UP) {
-                G.editor.cy = G.editor.startRowOrCell;
+                G.E.cy = G.E.startRowOrCell;
             }
             else if (c == PAGE_DOWN) {
-                G.editor.cy = G.editor.startRowOrCell + G.editor.windowRows - 1;
-                if (G.editor.cy > G.editor.numRows) G.editor.cy = G.editor.numRows;
+                G.E.cy = G.E.startRowOrCell + G.E.windowRows - 1;
+                if (G.E.cy > G.E.numRows) G.E.cy = G.E.numRows;
             }
 
-            for (int times = G.editor.windowRows - 1; times > 0; times--) {
-                moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.editor);
+            for (int times = G.E.windowRows - 1; times > 0; times--) {
+                moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.E);
         }
         }
         case HOME_KEY:
-            G.editor.cx = 0;
+            G.E.cx = 0;
             break;
         case END_KEY:
-            if (G.editor.cy < G.editor.numRows) {
-                G.editor.cx = G.editor.row[G.editor.cy].size;
+            if (G.E.cy < G.E.numRows) {
+                G.E.cx = G.E.row[G.E.cy].size;
             }
             break;
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.editor);
-            windowDelChar(&G.editor);
+            if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.E);
+            windowDelChar(&G.E);
             break;
         case ARROW_UP:
         case ARROW_LEFT:
         case ARROW_DOWN:
         case ARROW_RIGHT:
-            moveCursorChecking(c, &G.editor);
+            moveCursorChecking(c, &G.E);
             break;
         case CTRL_UP:
         case CTRL_LEFT:
             while (1) {
-                moveCursorChecking(ARROW_LEFT, &G.editor);
-                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
+                moveCursorChecking(ARROW_LEFT, &G.E);
+                char curChar = G.E.row[G.E.cy].chars[G.E.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
                 if (curChar == ' ' || curChar == '(' ||
                     curChar == ')' || curChar == '[' ||
                     curChar == ']' || curChar == '.' ||
                     curChar == '#' || curChar == '"' ||
                     curChar == '\t' ||
-                    G.editor.row[G.editor.cy].chars[G.editor.cx] == '"'||
-                    G.editor.cx == 0) break;
+                    G.E.row[G.E.cy].chars[G.E.cx] == '"'||
+                    G.E.cx == 0) break;
             }
             break;
         case CTRL_DOWN:
         case CTRL_RIGHT:
             while (1){
-                moveCursorChecking(ARROW_RIGHT, &G.editor);
-                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
+                moveCursorChecking(ARROW_RIGHT, &G.E);
+                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                 if (curChar == ' ' || curChar == '(' ||
                     curChar == ')' || curChar == '[' ||
                     curChar == ']' || curChar == '.' ||
                     curChar == '&' || curChar == ',' ||
                     curChar == ':' || curChar == '"' ||
                     curChar == '\t' ||
-                    (G.editor.row[G.editor.cy].chars[G.editor.cx-1] == '/' && G.editor.row[G.editor.cy].chars[G.editor.cx-2] == '/')||
-                    G.editor.row[G.editor.cy].chars[G.editor.cx-1] == '"'||
-                    G.editor.cx == G.editor.row[G.editor.cy].size ) break;
+                    (G.E.row[G.E.cy].chars[G.E.cx-1] == '/' && G.E.row[G.E.cy].chars[G.E.cx-2] == '/')||
+                    G.E.row[G.E.cy].chars[G.E.cx-1] == '"'||
+                    G.E.cx == G.E.row[G.E.cy].size ) break;
             }
             break;
         case F1_FUNCTION_KEY:
@@ -783,8 +783,8 @@ void processKeypress() {
         case F8_FUNCTION_KEY:
             //restart
             if (G.currentMode != EDIT) {
-                G.editor.cx = 0;
-                G.editor.cy = 0;
+                G.E.cx = 0;
+                G.E.cy = 0;
                 resetBrainfuck(&G.B);
                 resetWindow(&G.O);
                 setStatusMessage("");
@@ -808,75 +808,75 @@ void processKeypress() {
         case '(':
         case '{':
         case '[': {
-            windowInsertChar(c, &G.editor);
-            char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
+            windowInsertChar(c, &G.E);
+            char curChar = G.E.row[G.E.cy].chars[G.E.cx];
             //if cx is at end of row, curChar would be '\0'
             if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
                 switch (c) {
                     case '(':
-                        windowInsertChar(')', &G.editor);
+                        windowInsertChar(')', &G.E);
                         break;
                     case '{':
-                        windowInsertChar('}', &G.editor);
+                        windowInsertChar('}', &G.E);
                         break;
                      case '[':
-                        windowInsertChar(']', &G.editor);
+                        windowInsertChar(']', &G.E);
                         break;
                     case '"':
                     case 39:
                         if (curChar == c) {
-                            moveCursorChecking(ARROW_RIGHT, &G.editor);
+                            moveCursorChecking(ARROW_RIGHT, &G.E);
                         }
                         else {
-                            windowInsertChar(c, &G.editor);
+                            windowInsertChar(c, &G.E);
                         }
                         break;
                 }
-                moveCursorChecking(ARROW_LEFT, &G.editor);
+                moveCursorChecking(ARROW_LEFT, &G.E);
             }
             break;
         }
         case ')':
         case '}':
         case ']': {
-            if (G.editor.cy < G.editor.numRows) {
-                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
+            if (G.E.cy < G.E.numRows) {
+                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                 if (curChar == c) {
-                    moveCursorChecking(ARROW_RIGHT, &G.editor);
+                    moveCursorChecking(ARROW_RIGHT, &G.E);
                 }
                 else {
-                    windowInsertChar(c, &G.editor);
+                    windowInsertChar(c, &G.E);
                 }
             }
             else {
-                windowInsertChar(c, &G.editor);
+                windowInsertChar(c, &G.E);
             }
             break;
         }
         case '"':
         case 39: {    // this char is '
-            if (G.editor.cy < G.editor.numRows) {
-                char curChar = G.editor.row[G.editor.cy].chars[G.editor.cx];
+            if (G.E.cy < G.E.numRows) {
+                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                 if (curChar == c) {
-                    moveCursorChecking(ARROW_RIGHT, &G.editor);
+                    moveCursorChecking(ARROW_RIGHT, &G.E);
                 }
                 else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
-                    windowInsertChar(c, &G.editor);
-                    windowInsertChar(c, &G.editor);
-                    moveCursorChecking(ARROW_LEFT, &G.editor);
+                    windowInsertChar(c, &G.E);
+                    windowInsertChar(c, &G.E);
+                    moveCursorChecking(ARROW_LEFT, &G.E);
                 }
                 else {
-                    windowInsertChar(c, &G.editor);
+                    windowInsertChar(c, &G.E);
                 }
             }
             else {
-                windowInsertChar(c, &G.editor);
+                windowInsertChar(c, &G.E);
             }
             break;
         }
         default:
             if ( (c > 31 && c < 127) || c == '\t') {
-                windowInsertChar(c, &G.editor);
+                windowInsertChar(c, &G.E);
             }
             break;
     }
@@ -993,14 +993,14 @@ void windowScroll(window* this) {
 }
 
 void globalRefreshScreen(){
-    windowScroll(&G.editor);
+    windowScroll(&G.E);
 
     struct abuf ab = ABUF_INIT;
 
     abAppend(&ab, "\x1b[?25l", 6); //hide cursor
     //let's have each function move the cursor position independantly
     
-    drawEditorRows(&ab);
+    drawEditor(&ab);
 
     if (G.currentMode == DEBUG) {
         drawBorder(&ab);
@@ -1012,7 +1012,7 @@ void globalRefreshScreen(){
     drawMessageBar(&ab);
     
     //do smth diff when we allow for diff cursor
-    basicMoveCursor(&ab, G.editor.rx - G.editor.startCol + 1, G.editor.cy - G.editor.startRowOrCell + 1);
+    basicMoveCursor(&ab, G.E.rx - G.E.startCol + 1, G.E.cy - G.E.startRowOrCell + 1);
     
     abAppend(&ab, "\x1b[?25h", 6);
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -1020,23 +1020,23 @@ void globalRefreshScreen(){
 
 }
 
-void drawEditorRows(struct abuf * ab) {
+void drawEditor(struct abuf * ab) {
     abAppend(ab, "\x1b[H", 3);  //moves cursor position to 0,0
-    for (int y = 0; y < G.editor.windowRows; y++){
-        int fileRow = G.editor.startRowOrCell + y;
-        if (fileRow >= G.editor.numRows) {
-            if (G.editor.numRows == 0 && y == G.editor.windowRows / 3) {  //welcome message
+    for (int y = 0; y < G.E.windowRows; y++){
+        int fileRow = G.E.startRowOrCell + y;
+        if (fileRow >= G.E.numRows) {
+            if (G.E.numRows == 0 && y == G.E.windowRows / 3) {  //welcome message
                 char welcome[80];
                 int welcomelen = snprintf(welcome, sizeof(welcome), "Michael's Brainfuck IDE -- version %s", MICHAEL_IDE_VER);
 
-                int padding = (G.editor.windowCols - welcomelen) / 2;
+                int padding = (G.E.windowCols - welcomelen) / 2;
                 if (padding != 0) {
                     abAppend(ab, "~", 1);
                     padding--;
                 }
                 for (int i = padding; i > 0; i--) abAppend(ab, " ", 1);
 
-                if (welcomelen > G.editor.windowCols) welcomelen = G.editor.windowCols;
+                if (welcomelen > G.E.windowCols) welcomelen = G.E.windowCols;
                 abAppend(ab, welcome, welcomelen);
             }
             else {
@@ -1044,13 +1044,13 @@ void drawEditorRows(struct abuf * ab) {
             }
         }
         else {
-            int len = G.editor.row[fileRow].rsize - G.editor.startCol;
+            int len = G.E.row[fileRow].rsize - G.E.startCol;
             if (len < 0) len = 0; //just display nothing
-            if (len > G.editor.windowCols) len = G.editor.windowCols;
+            if (len > G.E.windowCols) len = G.E.windowCols;
             //abAppend(ab, &E.row[fileRow].render[E.colOff], len);
             //basic syntax highlighting
-            char* lineToPrint = &G.editor.row[fileRow].render[G.editor.startCol];
-            int rxOfInst = windowRowCxToRx(&G.editor.row[fileRow] , G.B.instX);
+            char* lineToPrint = &G.E.row[fileRow].render[G.E.startCol];
+            int rxOfInst = windowRowCxToRx(&G.E.row[fileRow] , G.B.instX);
             for (int j = 0; j < len; j++) {
                 switch(lineToPrint[j]){
                     case '>':
@@ -1082,7 +1082,7 @@ void drawEditorRows(struct abuf * ab) {
                         abAppend(ab, "\x1b[34m", 5);
                         break;
                 }
-                if (G.currentMode == DEBUG && y == G.B.instY && rxOfInst == G.editor.startCol + j) {
+                if (G.currentMode == DEBUG && y == G.B.instY && rxOfInst == G.E.startCol + j) {
                     abAppend(ab, "\x1b[7m", 4);
                 }
                 abAppend(ab, &lineToPrint[j], 1);
@@ -1096,11 +1096,11 @@ void drawEditorRows(struct abuf * ab) {
 }
 
 void drawBorder(struct abuf * ab){
-    basicMoveCursor(ab, G.editor.windowCols + 1, 0);
-    for (int y = 0; y < G.editor.windowRows; y++) {
+    basicMoveCursor(ab, G.E.windowCols + 1, 0);
+    for (int y = 0; y < G.E.windowRows; y++) {
         abAppend(ab, "|\x1b[D\x1b[B", 7);
     }
-    basicMoveCursor(ab, 0, G.editor.windowRows + 1);
+    basicMoveCursor(ab, 0, G.E.windowRows + 1);
     for (int x = 0; x < G.fullScreenCols; x++) {
         abAppend(ab, "=", 1);
     }
@@ -1165,11 +1165,11 @@ void drawStatusBar(struct abuf * ab) {
     abAppend(ab, "\x1b[7m", 4); //invert color, will also use for selection
     //file name
     char status[80], rightStatus[80];
-    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", (G.fileName ? G.fileName : "No Name"), G.editor.numRows, (G.editor.dirty ? "(modified)" : "") );
+    int len = snprintf(status, sizeof(status), "%.20s - %d lines %s", (G.fileName ? G.fileName : "No Name"), G.E.numRows, (G.E.dirty ? "(modified)" : "") );
     if (len > G.fullScreenCols) len = G.fullScreenCols;
     abAppend(ab, status, len);
 
-    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.editor.cy + 1 , G.editor.numRows);
+    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.E.cy + 1 , G.E.numRows);
     //fill rest of screen with spaces for the white bar effect
     while (len < G.fullScreenCols) {
         if (G.fullScreenCols - len == rightLen) {
@@ -1218,7 +1218,7 @@ void basicMoveCursor(struct abuf * ab, int x, int y) {
 void globalInit(){
     resetBrainfuck(&G.B);
     resetWindow(&G.O);
-    resetWindow(&G.editor);
+    resetWindow(&G.E);
 
     G.currentMode = EDIT;
     updateWindowSizes();
@@ -1264,29 +1264,29 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
         die("getWindowSize");
     }
 
-    G.editor.startPosX = 0;
-    G.editor.startPosY = 0;
+    G.E.startPosX = 0;
+    G.E.startPosY = 0;
     switch (G.currentMode) {
         case EDIT:
-            G.editor.windowCols = G.fullScreenCols;
-            G.editor.windowRows = G.fullScreenRows - 2;
+            G.E.windowCols = G.fullScreenCols;
+            G.E.windowRows = G.fullScreenRows - 2;
             break;
         case DEBUG:
-            G.editor.windowCols = (G.fullScreenCols / 2) - 2;
-            G.editor.windowRows = (G.fullScreenRows * 3) / 5 - 2;
+            G.E.windowCols = (G.fullScreenCols / 2) - 2;
+            G.E.windowRows = (G.fullScreenRows * 3) / 5 - 2;
             break;
     }
 
     //this doesn't really depend on the mode. They don't get printed in EDIT mode anyway
-    G.dataArray.startPosX = G.editor.windowCols + 2;
+    G.dataArray.startPosX = G.E.windowCols + 2;
     G.dataArray.startPosY = 0;
-    G.dataArray.windowCols = G.fullScreenCols - G.editor.windowCols - 1;
-    G.dataArray.windowRows = G.editor. windowRows;
+    G.dataArray.windowCols = G.fullScreenCols - G.E.windowCols - 1;
+    G.dataArray.windowRows = G.E. windowRows;
 
     G.O.startPosX = 0;
-    G.O.startPosY = G.editor.windowRows + 2;
+    G.O.startPosY = G.E.windowRows + 2;
     G.O.windowCols = G.fullScreenCols;
-    G.O.windowRows = G.fullScreenRows - G.editor.windowRows - 1 - 2; //1 for border, 2 for status bar/message
+    G.O.windowRows = G.fullScreenRows - G.E.windowRows - 1 - 2; //1 for border, 2 for status bar/message
 }
 
 //Barinfuck (this doesn't really need this ptr)
@@ -1312,7 +1312,7 @@ void instForward() { //igores comments
     char nextChar = '\0';
     while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
             nextChar != '.' && nextChar != ',' && nextChar != '[' && nextChar != ']' && nextChar != '?') {
-        erow *row = (G.B.instY >= G.editor.numRows) ? NULL : & G.editor.row[G.B.instY];
+        erow *row = (G.B.instY >= G.E.numRows) ? NULL : & G.E.row[G.B.instY];
         //there is a - 1 because we don't need it to go 1 space outside the current line
         if (row && G.B.instX < row->size - 1 ) {
             G.B.instX++;
@@ -1322,7 +1322,7 @@ void instForward() { //igores comments
             G.B.instX = 0;
         }
 
-        erow *nextRow = (G.B.instY >= G.editor.numRows) ? NULL : & G.editor.row[G.B.instY];
+        erow *nextRow = (G.B.instY >= G.E.numRows) ? NULL : & G.E.row[G.B.instY];
         if (nextRow == NULL) return;
         if (G.B.instX < nextRow->size) {
             nextChar = nextRow->chars[G.B.instX];
@@ -1335,7 +1335,7 @@ void instForward() { //igores comments
 
 void processBrainFuck(brainFuckModule* this) {
     //validate inst
-    if (this->instY >= G.editor.numRows || this->debugMode == EXECUTION_ENDED) {
+    if (this->instY >= G.E.numRows || this->debugMode == EXECUTION_ENDED) {
         this->debugMode = EXECUTION_ENDED;
         
         //put this in status bar (running vs finished and if error encountered in permanat status bar)
@@ -1348,13 +1348,13 @@ void processBrainFuck(brainFuckModule* this) {
         return;
     }
 
-    if (this->instX >= G.editor.row[this->instY].size) {
+    if (this->instX >= G.E.row[this->instY].size) {
         //This gets triggered on empty line. Can also happen when user delete stuff in run time
         instForward();
         return;
     }
 
-    char curInst = G.editor.row[this->instY].chars[this->instX];
+    char curInst = G.E.row[this->instY].chars[this->instX];
 
     //validate data cell
     if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
@@ -1494,18 +1494,18 @@ void processBrainFuck(brainFuckModule* this) {
                 instForward();
                 bool skipping = true;
                 while (skipping) {
-                    if (this->instY >= G.editor.numRows) {
+                    if (this->instY >= G.E.numRows) {
                         skipping = false;
                         this->debugMode = EXECUTION_ENDED;
                         setStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
                         this->errorMsg = "\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m";
                         break;
                     }
-                    if (this->instX >= G.editor.row[this->instY].size) {
+                    if (this->instX >= G.E.row[this->instY].size) {
                         instForward();
                         break;
                     }
-                    char curInst = G.editor.row[this->instY].chars[this->instX];
+                    char curInst = G.E.row[this->instY].chars[this->instX];
 
                     if (curInst == '[') {
                         coordStackPush(this->instX, this->instY, &stackForSkippping);
@@ -1578,15 +1578,15 @@ void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* thi
     bool skipping = true;
     while (!(this->instY == savedInstY && this->instX == savedInstX)) {
         //validate inst just in case
-        if (this->instY >= G.editor.numRows) {
+        if (this->instY >= G.E.numRows) {
             return;
         }
-        if (this->instX >= G.editor.row[this->instY].size) {
+        if (this->instX >= G.E.row[this->instY].size) {
             instForward();
             break;
         }
 
-        char curInst = G.editor.row[this->instY].chars[this->instX];
+        char curInst = G.E.row[this->instY].chars[this->instX];
         if (curInst == '[') {
             coordStackPush(this->instX, this->instY, &this->bracketStack);
         }
