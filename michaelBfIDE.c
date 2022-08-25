@@ -19,7 +19,7 @@
 
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
-#define MICHAEL_IDE_VER "0.6"
+#define MICHAEL_IDE_VER "0.7"
 #define TAB_STOP 4
 #define QUIT_TIMES 2
 
@@ -1111,30 +1111,37 @@ void drawDataArray(struct abuf * ab){
 
     char buf[10];
     
-    int locationInArray = G.B.arrayIndex;
-    for(int i = 0; i < 16; i++) {
-        if (i == locationInArray) {
-            abAppend(ab, "\x1b[7m", 4);
+    int cellToHighlight = G.B.arrayIndex;
+    int index = G.dataArray.startRowOrCell;
+
+    int numCol = G.dataArray.windowCols / 4;
+    for(int i = 0; i < G.dataArray.windowRows; i++) {
+        for (int j = 0; j < numCol; j++) {
+            if (index == cellToHighlight) {
+                abAppend(ab, "\x1b[7m", 4);
+            }
+
+            //ensure no seg fault
+            if (index < G.B.arraySize) {
+                snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[index]);
+            }
+            else {
+                snprintf(buf, sizeof(buf),"   |");
+            }
+            abAppend(ab, buf, strlen(buf));
+
+            if (index == cellToHighlight) {
+                abAppend(ab, "\x1b[m", 3);
+            }
+            index++;
         }
-        snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[i]);
-        abAppend(ab, buf, strlen(buf));
-        if (i == locationInArray) {
-            abAppend(ab, "\x1b[m", 3);
-        }
+        //clear right of screen, then move down
+        abAppend(ab, "\x1b[K", 3);
+        basicMoveCursor(ab, G.dataArray.startPosX, i + 2);
     }
-
-    printf("  ^\n");
-    /*here is the idea:
-    alllocate array (make it dynamic to claim Turing completeness, but static for starter) and do brainfuck operation with 1D array
-    fix number of cell displayed in 1 row to 16.
-    when printing, treat it as 2D array using pointer arithmetic. That way we can do the whole rowOffset thing
-    example: https://www.geeksforgeeks.org/dynamically-allocate-2d-array-c/
-    I also want to number the rows, but save that for later
-    */
-
 }
 
- //I maybe be able to make all 3 window-drawing function one big functions, but there is no advantage
+ //I may be able to make all 3 window-drawing function one big functions, but there is no advantage
 void drawOutput(struct abuf * ab) {
     basicMoveCursor(ab, G.O.startPosX, G.O.startPosY);
     for (int y = -1; y < G.O.windowRows; y++){
