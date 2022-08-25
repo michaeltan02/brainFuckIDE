@@ -173,6 +173,7 @@ char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no 
 
     //output
 void windowScroll(window* this);
+void dataArrayScroll();
 void globalRefreshScreen(void);
 void drawEditor(struct abuf* ab);
 void drawBorder(struct abuf* ab);
@@ -998,6 +999,8 @@ void windowScroll(window* this) {
 void dataArrayScroll() {
     if (G.currentMode == TEXT_EDITOR) return;
 
+    if (G.B.arrayIndex < 0 || G.B.arrayIndex >= G.B.arraySize) return;
+
     int numCell = G.dataArray.windowCols / 4;
     while (G.B.arrayIndex < G.dataArray.startRowOrCell) {
         G.dataArray.startRowOrCell -= numCell;
@@ -1013,7 +1016,10 @@ void dataArrayScroll() {
 
 void globalRefreshScreen(){
     windowScroll(&G.E);
-    if (G.currentMode != TEXT_EDITOR) dataArrayScroll();
+    if (G.currentMode != TEXT_EDITOR) { 
+        dataArrayScroll();
+        windowScroll(&G.O); //slightly wonky, but seem like it should work
+    }
 
     struct abuf ab = ABUF_INIT;
 
@@ -1161,9 +1167,9 @@ void drawDataArray(struct abuf * ab){
  //I may be able to make all 3 window-drawing function one big functions, but there is no advantage
 void drawOutput(struct abuf * ab) {
     basicMoveCursor(ab, G.O.startPosX, G.O.startPosY);
-    for (int y = -1; y < G.O.windowRows; y++){
+    for (int y = -1; y < G.O.windowRows - 1; y++){
         int outRow = G.O.startRowOrCell + y;
-        if (y == -1) { //"Output:" in bold
+        if (y == -1) { //"Output:" in bold (use -1 so we don't mess up outRow)
             abAppend(ab, "\x1b[1;37m", 7);
             abAppend(ab, "Output:\x1b[0m", 11);
         }
@@ -1463,7 +1469,7 @@ void processBrainFuck(brainFuckModule* this) {
                 char* userInput = NULL;
                 bool validInput = false;
                 while (!validInput) {
-                    userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
+                    userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only, ESC to cancel): %s", 3); 
                     if(userInput) {
                         if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
                             if (userInput[0] >= 48 && userInput[0] <= 57) {
