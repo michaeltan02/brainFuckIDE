@@ -253,13 +253,14 @@ int main(int argc, char* argv[]) {
                         processBrainFuck(&G.B);
                     }
                     break;
-                case STEPPING_OUT: {
-                    int curStackSize = G.B.bracketStack.top;
-                    while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
-                        processBrainFuck(&G.B);
+                case STEPPING_OUT: 
+                    {
+                        int curStackSize = G.B.bracketStack.top;
+                        while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
+                            processBrainFuck(&G.B);
+                        }
+                        G.B.debugMode = PAUSED;
                     }
-                    G.B.debugMode = PAUSED;
-                }
                 break;
             }
         }
@@ -645,8 +646,6 @@ void processKeypress() {
     static int curQuitTimes = QUIT_TIMES;   //preserve value even after going out of scope. Don't get re-initialized
     
     int c = readKey();
-
-    //putting it here just before an input is processed. Hopefully nothing break
     updateWindowSizes();
 
     switch (c) {
@@ -676,21 +675,23 @@ void processKeypress() {
              }
             break;
         case PAGE_UP:
-        case PAGE_DOWN:
-        {
-            //move to top/bottom of page, then scroll an entire page
-            if (c == PAGE_UP) {
-                G.E.cy = G.E.startRowOrCell;
-            }
-            else if (c == PAGE_DOWN) {
-                G.E.cy = G.E.startRowOrCell + G.E.windowRows - 1;
-                if (G.E.cy > G.E.numRows) G.E.cy = G.E.numRows;
-            }
+        case PAGE_DOWN: 
+            {
+                //move to top/bottom of page, then scroll an entire page
+                if (c == PAGE_UP) {
+                    G.E.cy = G.E.startRowOrCell;
+                }
+                else if (c == PAGE_DOWN) {
+                    G.E.cy = G.E.startRowOrCell + G.E.windowRows - 1;
+                    if (G.E.cy > G.E.numRows) G.E.cy = G.E.numRows;
+                }
 
-            for (int times = G.E.windowRows - 1; times > 0; times--) {
-                moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.E);
-        }
-        }
+                for (int times = G.E.windowRows - 1; times > 0; times--) {
+                    moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.E);
+                }
+                
+            }
+            break;
         case HOME_KEY:
             G.E.cx = 0;
             break;
@@ -742,11 +743,8 @@ void processKeypress() {
             }
             break;
         case F1_FUNCTION_KEY:
-            break;
         case F2_FUNCTION_KEY:
-            break;
         case F3_FUNCTION_KEY:
-            break;
         case F4_FUNCTION_KEY:
             break;
         case F5_FUNCTION_KEY:
@@ -790,6 +788,7 @@ void processKeypress() {
                 G.E.cy = 0;
                 resetBrainfuck(&G.B);
                 resetWindow(&G.O);
+                resetWindow(&G.dataArray);
                 setStatusMessage("");
                 globalRefreshScreen();
             }
@@ -800,6 +799,7 @@ void processKeypress() {
                 modeSwitcher(EDIT);
                 resetBrainfuck(&G.B);
                 resetWindow(&G.O);
+                resetWindow(&G.dataArray);
                 setStatusMessage("");
             }
             break;
@@ -996,7 +996,7 @@ void windowScroll(window* this) {
 }
 
 void dataArrayScroll() {
-    if (G.currentMode != DEBUG) return;
+    if (G.currentMode == TEXT_EDITOR) return;
 
     int numCell = G.dataArray.windowCols / 4;
     while (G.B.arrayIndex < G.dataArray.startRowOrCell) {
@@ -1013,21 +1013,18 @@ void dataArrayScroll() {
 
 void globalRefreshScreen(){
     windowScroll(&G.E);
-    dataArrayScroll();
+    if (G.currentMode != TEXT_EDITOR) dataArrayScroll();
 
     struct abuf ab = ABUF_INIT;
 
     abAppend(&ab, "\x1b[?25l", 6); //hide cursor
-    //let's have each function move the cursor position independantly
     
     drawEditor(&ab);
-
     if (G.currentMode == DEBUG) {
         drawBorder(&ab);
         drawDataArray(&ab);
         drawOutput(&ab);
     }
-
     drawStatusBar(&ab);
     drawMessageBar(&ab);
     
@@ -1141,7 +1138,6 @@ void drawDataArray(struct abuf * ab){
                 abAppend(ab, "\x1b[7m", 4);
             }
 
-            //ensure no seg fault
             if (index < G.B.arraySize) {
                 snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[index]);
             }
@@ -1153,6 +1149,7 @@ void drawDataArray(struct abuf * ab){
             if (index == cellToHighlight) {
                 abAppend(ab, "\x1b[m", 3);
             }
+
             index++;
         }
         //clear right of screen, then move down
@@ -1258,6 +1255,7 @@ void globalInit(){
     resetBrainfuck(&G.B);
     resetWindow(&G.O);
     resetWindow(&G.E);
+    resetWindow(&G.dataArray);
 
     G.currentMode = EDIT;
     updateWindowSizes();
@@ -1328,7 +1326,7 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
     G.O.windowRows = G.fullScreenRows - G.E.windowRows - 1 - 2; //1 for border, 2 for status bar/message
 }
 
-//Barinfuck (this doesn't really need this ptr)
+//Barinfuck (these functions don't really need this ptr, but I already implemented it)
 void resetBrainfuck(brainFuckModule* this){
     this->arraySize = 30000;
     memset(this->dataArray, 0, 30000);  //turn this into dynamic later
@@ -1460,61 +1458,62 @@ void processBrainFuck(brainFuckModule* this) {
             }
             instForward();
             break;
-        case ',': {
-            //need a way to let user out of this. Make it so ESC let user cancel input but doesn't move inst
-            char* userInput = NULL;
-            bool validInput = false;
-            while (!validInput) {
-                userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
-                if(userInput) {
-                    if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
-                        if (userInput[0] >= 48 && userInput[0] <= 57) {
-                            //We only consider it a number if first char is number
-                            int potentialNum = atoi(userInput);
-                            if(potentialNum == 0 && (userInput[0] != '0')) {
-                                validInput = false;
-                                free(userInput);
-                                userInput = NULL;
-                                setStatusMessage("Invalid input");
-                                globalRefreshScreen();
-                                readKey();
-                            }
-                            else if (potentialNum > 255) {
-                                validInput = false;
-                                free(userInput);
-                                userInput = NULL;
-                                setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
-                                globalRefreshScreen();
-                                readKey();
+        case ',': 
+            {
+                char* userInput = NULL;
+                bool validInput = false;
+                while (!validInput) {
+                    userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only): %s", 3); 
+                    if(userInput) {
+                        if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
+                            if (userInput[0] >= 48 && userInput[0] <= 57) {
+                                // First char is number
+                                int potentialNum = atoi(userInput);
+                                if(potentialNum == 0 && (userInput[0] != '0')) {
+                                    //shouldn't ever happen
+                                    validInput = false;
+                                    free(userInput);
+                                    userInput = NULL;
+                                    setStatusMessage("Invalid input");
+                                    globalRefreshScreen();
+                                    readKey();
+                                }
+                                else if (potentialNum > 255) {
+                                    validInput = false;
+                                    free(userInput);
+                                    userInput = NULL;
+                                    setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
+                                    globalRefreshScreen();
+                                    readKey();
+                                }
+                                else {
+                                    validInput = true;
+                                    *dataPtr = potentialNum;
+                                }
                             }
                             else {
+                                *dataPtr = userInput[0];
                                 validInput = true;
-                                *dataPtr = potentialNum;
                             }
                         }
                         else {
-                            *dataPtr = userInput[0];
-                            validInput = true;
+                            //Something went wrong. promptInput shouldn't give something like this
+                            validInput = false;
+                            free(userInput);
+                            userInput = NULL;
                         }
                     }
                     else {
-                        //Something went wrong. promptInput shouldn't give something like this
-                        validInput = false;
-                        free(userInput);
-                        userInput = NULL;
+                        //user canceled. So just go back to editor and pause without doing anything
+                        this->debugMode = PAUSED;
+                        return;
                     }
                 }
-                else {
-                    //user canceled. So just go back to editor and pause without doing anything
-                    this->debugMode = PAUSED;
-                    return;
-                }
+                free(userInput);
+                userInput = NULL;
+                instForward();
             }
-            free(userInput);
-            userInput = NULL;
-            instForward();
             break;
-        }
         case '[':
             if(*dataPtr){
                 //add bracket loc to stack
