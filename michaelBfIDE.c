@@ -242,25 +242,25 @@ int main(int argc, char* argv[]) {
                 G.B.regenerateStack = true;
                 setStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
             }
-
-            if (G.B.debugMode == STEP_BY_STEP) {
+            
+            switch (G.B.debugMode) {
+                case STEP_BY_STEP:
+                case EXECUTION_ENDED:
                     processBrainFuck(&G.B);
+                    break;
+                case CONTINUE:
+                    while (G.B.debugMode == CONTINUE) {
+                        processBrainFuck(&G.B);
+                    }
+                    break;
+                case STEPPING_OUT: {
+                    int curStackSize = G.B.bracketStack.top;
+                    while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
+                        processBrainFuck(&G.B);
+                    }
+                    G.B.debugMode = PAUSED;
                 }
-            else if (G.B.debugMode == CONTINUE) {
-                while (G.B.debugMode == CONTINUE) {
-                    processBrainFuck(&G.B);
-                }
-            }
-            else if (G.B.debugMode == STEPPING_OUT) {
-                //current implementation will stop at first closing bracket
-                int curStackSize = G.B.bracketStack.top;
-                while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
-                    processBrainFuck(&G.B);
-                }
-                G.B.debugMode = PAUSED;
-            }
-            else if (G.B.debugMode == EXECUTION_ENDED) {
-                processBrainFuck(&G.B);
+                break;
             }
         }
     }
