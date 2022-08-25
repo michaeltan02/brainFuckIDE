@@ -259,6 +259,9 @@ int main(int argc, char* argv[]) {
                 }
                 G.B.debugMode = PAUSED;
             }
+            else if (G.B.debugMode == EXECUTION_ENDED) {
+                processBrainFuck(&G.B);
+            }
         }
     }
 
@@ -753,20 +756,20 @@ void processKeypress() {
                 globalRefreshScreen();
                 
             }
-            else if (G.currentMode != EDIT) {
+            else if (G.currentMode != EDIT  && G.B.debugMode != EXECUTION_ENDED) {
                 //continue
                 G.B.debugMode = CONTINUE;
             }
             break;
         case F6_FUNCTION_KEY:
             //step into
-            if (G.currentMode == DEBUG) {
+            if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
                 G.B.debugMode = STEP_BY_STEP;
             }
             break;
         case F7_FUNCTION_KEY: {
                 //step out
-                if (G.currentMode == DEBUG) {
+                if (G.currentMode == DEBUG  && G.B.debugMode != EXECUTION_ENDED) {
                     if (G.B.regenerateStack) {
                         regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
                     }
@@ -992,8 +995,25 @@ void windowScroll(window* this) {
     }
 }
 
+void dataArrayScroll() {
+    if (G.currentMode != DEBUG) return;
+
+    int numCell = G.dataArray.windowCols / 4;
+    while (G.B.arrayIndex < G.dataArray.startRowOrCell) {
+        G.dataArray.startRowOrCell -= numCell;
+        if (G.dataArray.startRowOrCell < 0) G.dataArray.startRowOrCell = 0; 
+    }
+    
+    int fullWindow = G.dataArray.windowRows * numCell;
+    while (G.B.arrayIndex > G.dataArray.startRowOrCell + fullWindow) {
+        G.dataArray.startRowOrCell += numCell;
+        if (G.dataArray.startRowOrCell > G.B.arraySize - 1) G.dataArray.startRowOrCell = G.B.arraySize - 1;
+    }
+}
+
 void globalRefreshScreen(){
     windowScroll(&G.E);
+    dataArrayScroll();
 
     struct abuf ab = ABUF_INIT;
 
@@ -1137,7 +1157,7 @@ void drawDataArray(struct abuf * ab){
         }
         //clear right of screen, then move down
         abAppend(ab, "\x1b[K", 3);
-        basicMoveCursor(ab, G.dataArray.startPosX, i + 2);
+        basicMoveCursor(ab, G.dataArray.startPosX, i + 2); //screen is actually 1-based. 0 is just default value, which just happens to move start of line/col
     }
 }
 
