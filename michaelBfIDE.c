@@ -50,16 +50,16 @@ enum editorKey {
     F10_FUNCTION_KEY
 };
 
-enum windowType {
+typedef enum windowType {
     TEXT_EDITOR = 1,
     DATA_ARRAY,
     OUTPUT
-};
+} windowType;
 
 enum topMode {
     EDIT = 1,
     DEBUG,
-    EXECUTE
+    EXECUTE //this is actually needed. Make it convert things to string, and then execute. That might be faster
 };
 
 enum debuggerMode {
@@ -98,7 +98,7 @@ typedef struct brainFuckModule {
     enum debuggerMode debugMode;
 
     int instX, instY;
-    int instCounter;
+    long long instCounter;
     
     coordStack bracketStack;
     bool regenerateStack;
@@ -131,6 +131,7 @@ typedef struct erow {
 } erow;
 
 typedef struct window {
+    windowType type;
     int startPosX, startPosY;
     int cx, cy;
     int rx;
@@ -144,7 +145,7 @@ typedef struct window {
 
 
 //window member functions
-void resetWindow(window* this);
+void resetWindow(windowType givenType, window* this);
 
     //row operation
 void windowInsertRow(int at, char*s, size_t len, window* this);
@@ -201,6 +202,7 @@ struct globalEnvironment {
     time_t statusMsg_time;
 
     enum windowType activeWindow;
+    window* activeWindowPtr;
     enum topMode currentMode;
 };
 
@@ -226,7 +228,7 @@ struct globalEnvironment G;
 int main(int argc, char* argv[]) {
 	enableRawMode();
     globalInit();
-    //editorOpen("bfHelloWorld.bf"); //for testing in VScode
+    //editorOpen("mandelbrot.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
     }
@@ -252,6 +254,17 @@ int main(int argc, char* argv[]) {
                 case CONTINUE:
                     while (G.B.debugMode == CONTINUE) {
                         processBrainFuck(&G.B);
+
+                        //atempt at a pause button without interrupt mechanism
+                        //This works. However, it must be done sparsley cuz we made read() time out after 1/10th second. And if you are using bash on Windows, that set up just might not work.
+                        /*
+                        char c = '\0';
+                        read(STDIN_FILENO, &c, 1); //assuming read cannot crash the program in any way
+                        if (c == CTRL_KEY('p')) {
+                            G.B.debugMode = PAUSED;
+                            c = '\0';
+                        }
+                        */
                     }
                     break;
                 case STEPPING_OUT: 
@@ -539,7 +552,7 @@ void windowInsertChar(int c, window* this) {
 
 void windowInsertNewLine(window* this) {
     if (this->cx == 0) {
-        windowInsertRow(this->cy, "", 0, &G.E);
+        windowInsertRow(this->cy, "", 0, this);
     }
     else {
         erow* row = &this->row[this->cy];
@@ -666,7 +679,7 @@ void processKeypress() {
         case CTRL_KEY('s'):
             editorSave();
             break;
-        case CTRL_KEY('c'):
+        case CTRL_KEY('i'):
             //manually set brainfuck cursor
              if (G.currentMode == DEBUG) {
                 G.B.instX = G.E.cx;
@@ -674,6 +687,25 @@ void processKeypress() {
                 G.B.regenerateStack = true;
                 setStatusMessage("Instruction jumped to (%d, %d)", G.B.instX, G.B.instY);
              }
+            break;
+        case CTRL_KEY('w'):
+            //swiching active window
+            if (G.currentMode != EDIT) {
+                switch (G.activeWindow) {
+                    case TEXT_EDITOR:
+                        G.activeWindow = OUTPUT;
+                        G.activeWindowPtr = &G.O;
+                        break;
+                    case OUTPUT:
+                        G.activeWindow = DATA_ARRAY;
+                        G.activeWindowPtr = &G.dataArray;
+                        break;
+                    case DATA_ARRAY:
+                        G.activeWindow = TEXT_EDITOR;
+                        G.activeWindowPtr = &G.E;
+                        break;
+                }
+            }
             break;
         case PAGE_UP:
         case PAGE_DOWN: 
@@ -704,14 +736,18 @@ void processKeypress() {
         case BACKSPACE:
         case CTRL_KEY('h'):
         case DEL_KEY:
-            if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.E);
-            windowDelChar(&G.E);
+            if (G.activeWindow == TEXT_EDITOR) {
+                if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.E);
+                windowDelChar(&G.E);
+            }
             break;
         case ARROW_UP:
         case ARROW_LEFT:
         case ARROW_DOWN:
         case ARROW_RIGHT:
-            moveCursorChecking(c, &G.E);
+            if (G.activeWindow == TEXT_EDITOR || G.activeWindow == OUTPUT) {
+                moveCursorChecking(c, G.activeWindowPtr);
+            }
             break;
         case CTRL_UP:
         case CTRL_LEFT:
@@ -788,19 +824,21 @@ void processKeypress() {
                 G.E.cx = 0;
                 G.E.cy = 0;
                 resetBrainfuck(&G.B);
-                resetWindow(&G.O);
-                resetWindow(&G.dataArray);
+                resetWindow(OUTPUT, &G.O);
+                resetWindow(DATA_ARRAY, &G.dataArray);
                 setStatusMessage("");
                 globalRefreshScreen();
             }
             break;
         case F9_FUNCTION_KEY:
             //stop
+            G.activeWindow = TEXT_EDITOR;
+            G.activeWindowPtr = &G.E;
             if (G.currentMode != EDIT) {
                 modeSwitcher(EDIT);
                 resetBrainfuck(&G.B);
-                resetWindow(&G.O);
-                resetWindow(&G.dataArray);
+                resetWindow(OUTPUT, &G.O);
+                resetWindow(DATA_ARRAY, &G.dataArray);
                 setStatusMessage("");
             }
             break;
@@ -809,78 +847,87 @@ void processKeypress() {
         case CTRL_KEY('l'): 
         case '\x1b':
             break;
+        //bracket auto-complete
         case '(':
         case '{':
         case '[': {
-            windowInsertChar(c, &G.E);
-            char curChar = G.E.row[G.E.cy].chars[G.E.cx];
-            //if cx is at end of row, curChar would be '\0'
-            if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
-                switch (c) {
-                    case '(':
-                        windowInsertChar(')', &G.E);
-                        break;
-                    case '{':
-                        windowInsertChar('}', &G.E);
-                        break;
-                     case '[':
-                        windowInsertChar(']', &G.E);
-                        break;
-                    case '"':
-                    case 39:
-                        if (curChar == c) {
-                            moveCursorChecking(ARROW_RIGHT, &G.E);
-                        }
-                        else {
-                            windowInsertChar(c, &G.E);
-                        }
-                        break;
+            if (G.activeWindow == TEXT_EDITOR) {
+                windowInsertChar(c, &G.E);
+                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
+                //if cx is at end of row, curChar would be '\0'
+                if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
+                    switch (c) {
+                        case '(':
+                            windowInsertChar(')', &G.E);
+                            break;
+                        case '{':
+                            windowInsertChar('}', &G.E);
+                            break;
+                        case '[':
+                            windowInsertChar(']', &G.E);
+                            break;
+                        case '"':
+                        case 39:
+                            if (curChar == c) {
+                                moveCursorChecking(ARROW_RIGHT, &G.E);
+                            }
+                            else {
+                                windowInsertChar(c, &G.E);
+                            }
+                            break;
+                    }
+                    moveCursorChecking(ARROW_LEFT, &G.E);
                 }
-                moveCursorChecking(ARROW_LEFT, &G.E);
             }
             break;
         }
         case ')':
         case '}':
         case ']': {
-            if (G.E.cy < G.E.numRows) {
-                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
-                if (curChar == c) {
-                    moveCursorChecking(ARROW_RIGHT, &G.E);
+            if (G.activeWindow == TEXT_EDITOR) {
+                if (G.E.cy < G.E.numRows) {
+                    char curChar = G.E.row[G.E.cy].chars[G.E.cx];
+                    if (curChar == c) {
+                        moveCursorChecking(ARROW_RIGHT, &G.E);
+                    }
+                    else {
+                        windowInsertChar(c, &G.E);
+                    }
                 }
                 else {
                     windowInsertChar(c, &G.E);
                 }
-            }
-            else {
-                windowInsertChar(c, &G.E);
             }
             break;
         }
         case '"':
         case 39: {    // this char is '
-            if (G.E.cy < G.E.numRows) {
-                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
-                if (curChar == c) {
-                    moveCursorChecking(ARROW_RIGHT, &G.E);
-                }
-                else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
-                    windowInsertChar(c, &G.E);
-                    windowInsertChar(c, &G.E);
-                    moveCursorChecking(ARROW_LEFT, &G.E);
+            if (G.activeWindow == TEXT_EDITOR) {
+                if (G.E.cy < G.E.numRows) {
+                    char curChar = G.E.row[G.E.cy].chars[G.E.cx];
+                    if (curChar == c) {
+                        moveCursorChecking(ARROW_RIGHT, &G.E);
+                    }
+                    else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
+                        windowInsertChar(c, &G.E);
+                        windowInsertChar(c, &G.E);
+                        moveCursorChecking(ARROW_LEFT, &G.E);
+                    }
+                    else {
+                            windowInsertChar(c, &G.E);
+                    }
                 }
                 else {
                     windowInsertChar(c, &G.E);
                 }
             }
-            else {
-                windowInsertChar(c, &G.E);
-            }
             break;
         }
         default:
-            if ( (c > 31 && c < 127) || c == '\t') {
-                windowInsertChar(c, &G.E);
+            if (G.activeWindow == TEXT_EDITOR) {
+                if ( (c > 31 && c < 127) || c == '\t') {
+                    windowInsertChar(c, &G.E);
+                }
             }
             break;
     }
@@ -1018,7 +1065,7 @@ void globalRefreshScreen(){
     windowScroll(&G.E);
     if (G.currentMode != TEXT_EDITOR) { 
         dataArrayScroll();
-        windowScroll(&G.O); //slightly wonky, but seem like it should work
+        windowScroll(&G.O);
     }
 
     struct abuf ab = ABUF_INIT;
@@ -1035,7 +1082,9 @@ void globalRefreshScreen(){
     drawMessageBar(&ab);
     
     //do smth diff when we allow for diff cursor
-    basicMoveCursor(&ab, G.E.rx - G.E.startCol + 1, G.E.cy - G.E.startRowOrCell + 1);
+    int activeWindowX = G.activeWindowPtr->rx - G.activeWindowPtr->startCol + 1 + G.activeWindowPtr->startPosX;
+    int activeWindowY = G.activeWindowPtr->cy - G.activeWindowPtr->startRowOrCell + 1 + G.activeWindowPtr->startPosY;
+    basicMoveCursor(&ab, activeWindowX, activeWindowY);
     
     abAppend(&ab, "\x1b[?25h", 6);
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -1257,11 +1306,11 @@ void basicMoveCursor(struct abuf * ab, int x, int y) {
 }
 
 //"member" functions
-void globalInit(){
+void globalInit() {
     resetBrainfuck(&G.B);
-    resetWindow(&G.O);
-    resetWindow(&G.E);
-    resetWindow(&G.dataArray);
+    resetWindow(OUTPUT, &G.O);
+    resetWindow(TEXT_EDITOR, &G.E);
+    resetWindow(DATA_ARRAY, &G.dataArray);
 
     G.currentMode = EDIT;
     updateWindowSizes();
@@ -1270,6 +1319,7 @@ void globalInit(){
     G.statusMsg[0] = '\0';
     G.statusMsg_time = 0;
     G.activeWindow = TEXT_EDITOR;
+    G.activeWindowPtr = &G.E;
 }
 
 void abAppend(struct abuf * ab, const char * s, int len) {
@@ -1281,7 +1331,8 @@ void abAppend(struct abuf * ab, const char * s, int len) {
     ab->len += len;
 }
 
-void resetWindow(window* this) {
+void resetWindow(windowType givenType, window* this) {
+    this->type = givenType;
     free(this->row);
     this->row = NULL;
 
@@ -1448,8 +1499,11 @@ void processBrainFuck(brainFuckModule* this) {
         case '.':
             //also check for change line and delete
             switch (*dataPtr) {
-                case '\r': //ASCII 13
+                case '\n': //ASCII 10
+                //case '\r': //ASCII 13
                     windowInsertNewLine(&G.O);
+                    globalRefreshScreen();
+                    //this->debugMode = PAUSED;
                     break;
                 case 8: //backspace symbol
                     windowDelChar(&G.O);
