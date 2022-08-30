@@ -327,8 +327,16 @@ void die(const char* s) { //error handling
 int readKey(void) {
     int nread;
     char c;
+    int oldWidth, oldLength;
     while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
         if(nread == -1 && errno != EAGAIN) die("read");
+        //experiement with auto updating screen when resizing happen
+        oldWidth = G.fullScreenCols;
+        oldLength = G.fullScreenRows;
+        updateWindowSizes();
+        if (G.fullScreenCols != oldWidth || G.fullScreenRows != oldLength) {
+            globalRefreshScreen();
+        }
     }
     if (c == '\x1b') {
         char seq[5];
@@ -666,7 +674,7 @@ void processKeypress() {
     static int curQuitTimes = QUIT_TIMES;   //preserve value even after going out of scope. Don't get re-initialized
     
     int c = readKey();
-    updateWindowSizes();
+    //updateWindowSizes();
 
     switch (c) {
         case '\r':
@@ -1421,20 +1429,22 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
     }
 
     //this doesn't really depend on the mode. They don't get printed in EDIT mode anyway
-    G.dataArray.startPosX = G.E.windowCols + 2;
-    G.dataArray.startPosY = 0;
-    G.dataArray.windowCols = G.fullScreenCols - G.E.windowCols - 1;
-    G.dataArray.windowRows = G.E. windowRows;
+    if (G.currentMode != EDIT) {
+        G.dataArray.startPosX = G.E.windowCols + 2;
+        G.dataArray.startPosY = 0;
+        G.dataArray.windowCols = G.fullScreenCols - G.E.windowCols - 1;
+        G.dataArray.windowRows = G.E. windowRows;
 
-    if (G.dataArray.windowCols)
-        G.dataArray.numCells = G.dataArray.windowCols / 4;
-    if (G.dataArray.numCells)
-        G.dataArray.numRows = G.B.arraySize / G.dataArray.numCells + 1;
+        if (G.dataArray.windowCols)
+            G.dataArray.numCells = G.dataArray.windowCols / 4;
+        if (G.dataArray.numCells)
+            G.dataArray.numRows = G.B.arraySize / G.dataArray.numCells + 1;
 
-    G.O.startPosX = 0;
-    G.O.startPosY = G.E.windowRows + 2;
-    G.O.windowCols = G.fullScreenCols;
-    G.O.windowRows = G.fullScreenRows - G.E.windowRows - 1 - 2; //1 for border, 2 for status bar/message
+        G.O.startPosX = 0;
+        G.O.startPosY = G.E.windowRows + 2;
+        G.O.windowCols = G.fullScreenCols;
+        G.O.windowRows = G.fullScreenRows - G.E.windowRows - 1 - 2; //1 for border, 2 for status bar/message
+    }
 }
 
 //Barinfuck (these functions don't really need this ptr, but I already implemented it)
