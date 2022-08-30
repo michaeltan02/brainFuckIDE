@@ -20,6 +20,8 @@
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define MICHAEL_IDE_VER "0.7"
+
+// User Tweakable Parameters
 #define TAB_STOP 4
 #define QUIT_TIMES 2
 
@@ -56,19 +58,19 @@ typedef enum windowType {
     OUTPUT
 } windowType;
 
-enum topMode {
+typedef enum topMode {
     EDIT = 1,
     DEBUG,
     EXECUTE //this is actually needed. Make it convert things to string, and then execute. That might be faster
-};
+} topMode;
 
-enum debuggerMode {
+typedef enum debuggerMode {
     PAUSED = 0,
     STEP_BY_STEP,
     CONTINUE,
     STEPPING_OUT,
     EXECUTION_ENDED
-};
+} debuggerMode;
 
 //brainfuck stuff
 typedef struct coordinate {
@@ -80,7 +82,7 @@ typedef struct coordStack {
     int top;
     int size;
     coordinate stackArray[100];
-}coordStack;
+} coordStack;
 
 //stack member functions
 void coordStackInit(coordStack* this);
@@ -95,7 +97,7 @@ typedef struct brainFuckModule {
     int arraySize;
     int arrayIndex;
 
-    enum debuggerMode debugMode;
+    debuggerMode debugMode;
 
     int instX, instY;
     long long instCounter;
@@ -110,6 +112,7 @@ typedef struct brainFuckModule {
 void resetBrainfuck(brainFuckModule* this);
 void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
+void brainfuckDie(char* error, brainFuckModule* this);
 void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this);
 
 //Windows and I/O
@@ -201,9 +204,9 @@ struct globalEnvironment {
     char statusMsg [255]; //bottleneck for status message length
     time_t statusMsg_time;
 
-    enum windowType activeWindow;
+    windowType activeWindow;
     window* activeWindowPtr;
-    enum topMode currentMode;
+    topMode currentMode;
 };
 
 //Global environmnet member functions
@@ -218,11 +221,11 @@ int getWindowSize (int* rows, int* cols);
 int getCursorPosition(int* rows, int* cols);
 
     //modes and windows
-void modeSwitcher(enum topMode nextMode);
+void modeSwitcher(topMode nextMode);
+void activeWindowSwicher(windowType nextWindow);
 void updateWindowSizes();
 
-// I can re-factor this global struct to be declared in main and pass it to functions (just use this ptr explicity), but that provides no real advantage for a one-person project of this size
-// This would be the equivalnet of MainFrm in MFC, with the windows being children frames. 
+// I can re-factor this global struct to be declared in main and pass it to functions, but that provides no real advantage for a one-person project of this size
 struct globalEnvironment G;
 
 int main(int argc, char* argv[]) {
@@ -249,6 +252,7 @@ int main(int argc, char* argv[]) {
             switch (G.B.debugMode) {
                 case STEP_BY_STEP:
                 case EXECUTION_ENDED:
+                    //this overwrite other status messages. Not a big problem, fix later
                     processBrainFuck(&G.B);
                     break;
                 case CONTINUE:
@@ -288,7 +292,7 @@ void enableRawMode() {
     if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1) {
         die("tcgetattr");
     }
-    atexit(disableRawMode); //it's cool that this can be placed anywhere
+    atexit(disableRawMode); // it's cool that this can be placed anywhere
 
     struct termios raw = G.orig_termio;
     raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
@@ -297,9 +301,9 @@ void enableRawMode() {
     raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
 
     raw.c_cc[VMIN] = 0;
-    raw.c_cc[VTIME] = 1;    //adds a timeout to read (in 0.1s)
+    raw.c_cc[VTIME] = 1;    // adds a timeout to read (in 0.1s)
 
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) {   //TCSAFLUCH defines how the change is applied
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) { // TCSAFLUCH defines how the change is applied
         die("tcsetattr"); 
     }
 }
@@ -693,16 +697,13 @@ void processKeypress() {
             if (G.currentMode != EDIT) {
                 switch (G.activeWindow) {
                     case TEXT_EDITOR:
-                        G.activeWindow = OUTPUT;
-                        G.activeWindowPtr = &G.O;
+                        activeWindowSwicher(OUTPUT);
                         break;
                     case OUTPUT:
-                        G.activeWindow = DATA_ARRAY;
-                        G.activeWindowPtr = &G.dataArray;
+                        activeWindowSwicher(DATA_ARRAY);
                         break;
                     case DATA_ARRAY:
-                        G.activeWindow = TEXT_EDITOR;
-                        G.activeWindowPtr = &G.E;
+                        activeWindowSwicher(TEXT_EDITOR);
                         break;
                 }
             }
@@ -832,8 +833,7 @@ void processKeypress() {
             break;
         case F9_FUNCTION_KEY:
             //stop
-            G.activeWindow = TEXT_EDITOR;
-            G.activeWindowPtr = &G.E;
+            activeWindowSwicher(TEXT_EDITOR);
             if (G.currentMode != EDIT) {
                 modeSwitcher(EDIT);
                 resetBrainfuck(&G.B);
@@ -1154,7 +1154,7 @@ void drawEditor(struct abuf * ab) {
                         abAppend(ab, "\x1b[34m", 5);
                         break;
                 }
-                if (G.currentMode == DEBUG && y == G.B.instY && rxOfInst == G.E.startCol + j) {
+                if (G.currentMode == DEBUG && fileRow == G.B.instY && rxOfInst == G.E.startCol + j) {
                     abAppend(ab, "\x1b[7m", 4);
                 }
                 abAppend(ab, &lineToPrint[j], 1);
@@ -1162,7 +1162,7 @@ void drawEditor(struct abuf * ab) {
             }
         }
 
-        abAppend(ab, "\x1b[K", 3);  //clear line rihgt of cursor
+        abAppend(ab, "\x1b[K", 3);  // clear line right of cursor
         abAppend(ab, "\r\n", 2);
     }
 }
@@ -1345,12 +1345,27 @@ void resetWindow(windowType givenType, window* this) {
     this->dirty = 0;
 }
 
-//windows
-void modeSwitcher(enum topMode nextMode) {
+// modes and windows
+void modeSwitcher(topMode nextMode) {
     G.currentMode = nextMode;
     write(STDOUT_FILENO, "\x1b[2J", 4);    //clear entire screen
     updateWindowSizes();
     globalRefreshScreen();
+}
+
+void activeWindowSwicher(enum windowType nextWindow) {
+    G.activeWindow = nextWindow;
+    switch (nextWindow) {
+        case TEXT_EDITOR:
+            G.activeWindowPtr = &G.E;
+            break;
+        case DATA_ARRAY:
+            G.activeWindowPtr = &G.dataArray;
+            break;
+        case OUTPUT:
+            G.activeWindowPtr = &G.O;
+            break;
+    }
 }
 
 void updateWindowSizes() { //Chaning window size in debug mode has some funky bugs
@@ -1427,6 +1442,13 @@ void instForward() { //igores comments
     }
 }
 
+void brainfuckDie(char* error, brainFuckModule* this) {
+    this->debugMode = EXECUTION_ENDED;
+    setStatusMessage("\x1b[7;31mError: %s\x1b[0m\x1b[7m", error);
+    this->errorMsg = error;
+    globalRefreshScreen();
+}
+
 void processBrainFuck(brainFuckModule* this) {
     //validate inst
     if (this->instY >= G.E.numRows || this->debugMode == EXECUTION_ENDED) {
@@ -1434,10 +1456,17 @@ void processBrainFuck(brainFuckModule* this) {
         
         //put this in status bar (running vs finished and if error encountered in permanat status bar)
         if (this->errorMsg) {
-            setStatusMessage("Execution finished. %s Press F8 to restart, F9 to quit to editor", this->errorMsg);
+            setStatusMessage("Execution finished. \x1b[7;31mError: %s\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
         else {
-            setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
+            if (coordStackIsEmpty(&this->bracketStack)) {
+                setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
+            }
+            else {
+                int bracketX = coordStackTop(&this->bracketStack).x;
+                int bracketY = coordStackTop(&this->bracketStack).y;
+                setStatusMessage("Execution finished. \x1b[7;31mError: Opening bracket at {%d,%d} was not closed\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", bracketX, bracketY);
+            }
         }
         return;
     }
@@ -1462,10 +1491,7 @@ void processBrainFuck(brainFuckModule* this) {
     switch(curInst){
         case '>':
             if (this->arrayIndex + 1 >= this->arraySize ) {
-                this->debugMode = EXECUTION_ENDED;
-                setStatusMessage("\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m");
-                this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's upper bound.\x1b[0m\x1b[7m";
-                globalRefreshScreen();
+                brainfuckDie("Attemped to go out of array's upper bound.", this);
                 //make this triger memory allocation later on
                 return;
             }
@@ -1476,11 +1502,7 @@ void processBrainFuck(brainFuckModule* this) {
             break;
         case '<':
             if (this->arrayIndex - 1 < 0) {
-                this->debugMode = EXECUTION_ENDED;
-                setStatusMessage("\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m");
-                this->errorMsg = "\x1b[7;31mError: Attemped to go out of array's lower bound.\x1b[0m\x1b[7m";
-                globalRefreshScreen();
-                //we should be able to do a check for this before running the code
+                brainfuckDie("Attemped to go out of array's lower bound.", this);
                 return;
             }
             else {
@@ -1503,7 +1525,6 @@ void processBrainFuck(brainFuckModule* this) {
                 //case '\r': //ASCII 13
                     windowInsertNewLine(&G.O);
                     globalRefreshScreen();
-                    //this->debugMode = PAUSED;
                     break;
                 case 8: //backspace symbol
                     windowDelChar(&G.O);
@@ -1591,9 +1612,7 @@ void processBrainFuck(brainFuckModule* this) {
                 while (skipping) {
                     if (this->instY >= G.E.numRows) {
                         skipping = false;
-                        this->debugMode = EXECUTION_ENDED;
-                        setStatusMessage("\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m");
-                        this->errorMsg = "\x1b[7;31mError: Missing closing bracket.\x1b[0m\x1b[7m";
+                        brainfuckDie("Missing closing bracket.", this);
                         break;
                     }
                     if (this->instX >= G.E.row[this->instY].size) {
@@ -1636,12 +1655,8 @@ void processBrainFuck(brainFuckModule* this) {
                     instForward(); //don't execute the open bracket again
                 }
                 else {
-                    this->debugMode = EXECUTION_ENDED;
-                    setStatusMessage("\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m");
-                    this->errorMsg = "\x1b[7;31mError: Cannot find opening bracket.\x1b[0m\x1b[7m";
-                    globalRefreshScreen();
+                    brainfuckDie("Cannot find opening bracket.", this);
                 }
-                //to-do: regenerate stack if user edited code during run time 
             }
             else{
                 //exit loop
@@ -1650,17 +1665,20 @@ void processBrainFuck(brainFuckModule* this) {
             }
             break;
         case '?':
-            this->debugMode = PAUSED;
+            if (G.currentMode == DEBUG) {
+                this->debugMode = PAUSED;
+                this->instCounter = 0;
+            }
             instForward();
-            this->instCounter = 0;
             break;
         default:
             instForward();
             break;
     }
-    //E.cy = this->instY; //need SOME way to make sure this process scroll the screen. How does CPUlator do it
+    //only do this if need to scroll screen (horizontally and vertically)
+    G.E.cy = this->instY;
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
-    this->instCounter++;
+    ++(this->instCounter);
 }
 
 void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this) {
@@ -1709,6 +1727,7 @@ bool coordStackPush(int x, int y, coordStack* this) {
     }
     else {
         //allocate more memory when dynamic
+        brainfuckDie("Loop stack full.", &G.B);
         return false;
     }
 }
@@ -1724,10 +1743,8 @@ coordinate coordStackTop(coordStack* this) {
         return (this->stackArray[this->top]);
     }
     else {
+        brainfuckDie("Tried to pop empty stack. Returned {0,0}.", &G.B);
         coordinate zeroCoord = {0,0};
-        setStatusMessage("Error: tried to pop empty stack. Returned {0,0}");
-        globalRefreshScreen;
-        readKey();
         return zeroCoord;
     }
 }
