@@ -139,6 +139,7 @@ typedef struct window {
     int cx, cy;
     int rx;
     int numRows;
+    int numCells;
     int windowRows;
     int windowCols;
     int startRowOrCell, startCol;
@@ -173,11 +174,12 @@ void editorSave();
     //input
 void processKeypress(void);
 void moveCursorChecking(int key, window* this);
+void moveCursorCheckingDatayArray(int key, window* this); // basically virtual func of above
 char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
 
     //output
 void windowScroll(window* this);
-void dataArrayScroll();
+void dataArrayScroll(window* this);
 void globalRefreshScreen(void);
 void drawEditor(struct abuf* ab);
 void drawBorder(struct abuf* ab);
@@ -749,6 +751,9 @@ void processKeypress() {
             if (G.activeWindow == TEXT_EDITOR || G.activeWindow == OUTPUT) {
                 moveCursorChecking(c, G.activeWindowPtr);
             }
+            else if (G.activeWindow == DATA_ARRAY) {
+                moveCursorCheckingDatayArray(c, G.activeWindowPtr);
+            }
             break;
         case CTRL_UP:
         case CTRL_LEFT:
@@ -971,6 +976,41 @@ void moveCursorChecking(int key, window* this){
     }
 }
 
+void moveCursorCheckingDatayArray(int key, window* this){ //this of this as virtual func of above
+    if (this->type != DATA_ARRAY) return;
+
+    switch (key) {
+        case ARROW_UP:
+            if (this->cy > 0) this->cy--;
+            break;
+        case ARROW_LEFT:
+            if (this->cx != 0) {
+                this->cx--;
+            } 
+            else if (this->cy > 0) {
+                this->cy--;
+                this->cx = this->numCells - 1;
+            }
+            break;
+        case ARROW_DOWN:
+            if (this->cy < this->numRows - 1) this->cy++;
+            break;
+        case ARROW_RIGHT:
+            if (this->cx < this->numCells - 1 ) {
+                this->cx++;
+            }
+            else if (this->cy < this->numRows - 1 && this->cx == this->numCells - 1) {
+                this->cy++;
+                this->cx = 0;
+            }
+            break;
+    }
+
+    if (this->cx > this->numCells - 1) {
+        this->cx = this->numCells - 1;
+    }
+}
+
 char* promptInput(char * prompt, int inputSizeLimit){
     size_t bufSize = 128;
     char * buf = malloc(bufSize);   //our dynamic input buffer
@@ -1043,28 +1083,23 @@ void windowScroll(window* this) {
     }
 }
 
-void dataArrayScroll() {
-    if (G.currentMode == TEXT_EDITOR) return;
+void dataArrayScroll(window* this) {
+    if (G.currentMode == TEXT_EDITOR || this-> type != DATA_ARRAY) return;
 
-    if (G.B.arrayIndex < 0 || G.B.arrayIndex >= G.B.arraySize) return;
+    if (this->cy < this->startRowOrCell) {
+        this->startRowOrCell = this->cy;
+    }
+    if (this->cy >= this->startRowOrCell + this->windowRows) {
+        this->startRowOrCell = this->cy - this->windowRows + 1;
+    }
 
-    int numCell = G.dataArray.windowCols / 4;
-    while (G.B.arrayIndex < G.dataArray.startRowOrCell) {
-        G.dataArray.startRowOrCell -= numCell;
-        if (G.dataArray.startRowOrCell < 0) G.dataArray.startRowOrCell = 0; 
-    }
-    
-    int fullWindow = G.dataArray.windowRows * numCell;
-    while (G.B.arrayIndex > G.dataArray.startRowOrCell + fullWindow) {
-        G.dataArray.startRowOrCell += numCell;
-        if (G.dataArray.startRowOrCell > G.B.arraySize - 1) G.dataArray.startRowOrCell = G.B.arraySize - 1;
-    }
+    G.dataArray.rx = G.dataArray.cx * 4 + 1; 
 }
 
 void globalRefreshScreen(){
     windowScroll(&G.E);
     if (G.currentMode != TEXT_EDITOR) { 
-        dataArrayScroll();
+        dataArrayScroll(&G.dataArray);
         windowScroll(&G.O);
     }
 
@@ -1184,11 +1219,10 @@ void drawDataArray(struct abuf * ab){
     char buf[10];
     
     int cellToHighlight = G.B.arrayIndex;
-    int index = G.dataArray.startRowOrCell;
+    int index = G.dataArray.startRowOrCell * G.dataArray.numCells;
 
-    int numCol = G.dataArray.windowCols / 4;
     for(int i = 0; i < G.dataArray.windowRows; i++) {
-        for (int j = 0; j < numCol; j++) {
+        for (int j = 0; j < G.dataArray.numCells; j++) {
             if (index == cellToHighlight) {
                 abAppend(ab, "\x1b[7m", 4);
             }
@@ -1391,6 +1425,11 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
     G.dataArray.startPosY = 0;
     G.dataArray.windowCols = G.fullScreenCols - G.E.windowCols - 1;
     G.dataArray.windowRows = G.E. windowRows;
+
+    if (G.dataArray.windowCols)
+        G.dataArray.numCells = G.dataArray.windowCols / 4;
+    if (G.dataArray.numCells)
+        G.dataArray.numRows = G.B.arraySize / G.dataArray.numCells + 1;
 
     G.O.startPosX = 0;
     G.O.startPosY = G.E.windowRows + 2;
@@ -1677,6 +1716,8 @@ void processBrainFuck(brainFuckModule* this) {
     }
     //only do this if need to scroll screen (horizontally and vertically)
     G.E.cy = this->instY;
+    G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells;
+
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
     ++(this->instCounter);
 }
