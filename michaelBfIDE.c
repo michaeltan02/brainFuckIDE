@@ -560,8 +560,15 @@ void windowInsertChar(int c, window* this) {
         windowInsertRow(this->numRows,"", 0, this);
     }
     windowRowInsertChar(&this->row[this->cy], this->cx, c);
+
+    if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
+        if (this->cy == G.B.instY && this->cx <= G.B.instX) {
+            G.B.instX++;
+        }
+    }
+
     this->cx++;
-    this->dirty++;
+    this->dirty++;    
 }
 
 void windowInsertNewLine(window* this) {
@@ -576,6 +583,17 @@ void windowInsertNewLine(window* this) {
         row->chars[row->size] = '\0';
         windowUpdateRow(row);
     }
+
+    if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
+        if (this->cy == G.B.instY && this->cx <= G.B.instX) {
+            G.B.instX -= this->cx;
+            G.B.instY++;
+        }
+        else if (this->cy < G.B.instY) {
+            G.B.instY++;
+        }
+    }
+
     this->cy++;
     this->cx = 0;
 }
@@ -585,9 +603,26 @@ void windowDelChar(window* this) {
     if (this->cx == 0 && this->cy == 0) return;
     if (this->cx > 0) {
         windowRowDelChar(&this->row[this->cy], this->cx - 1);
+
+        if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
+            if (this->cy == G.B.instY && this->cx <= G.B.instX) {
+                G.B.instX--;
+            }
+        }
+
         this->cx--;
     }
     else {
+        if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
+            if (this->cy == G.B.instY) {
+                G.B.instX += this->row[this->cy - 1].size;
+                G.B.instY--;
+            }
+            else if (this->cy < G.B.instY) {
+                G.B.instY--;
+            }
+        }
+
         this->cx = this->row[this->cy - 1].size;
         windowRowAppendString(&this->row[this->cy - 1], this->row[this->cy].chars, this->row[this->cy].size);
         windowDelRow(this->cy, this);
@@ -700,6 +735,7 @@ void processKeypress() {
                 G.B.instY = G.E.cy;
                 G.B.regenerateStack = true;
                 setStatusMessage("Instruction jumped to (%d, %d)", G.B.instX, G.B.instY);
+                regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
              }
             break;
         case CTRL_KEY('w'):
@@ -985,7 +1021,7 @@ void moveCursorChecking(int key, window* this){
 }
 
 void moveCursorCheckingDatayArray(int key, window* this){ //this of this as virtual func of above
-    if (this->type != DATA_ARRAY) return;
+    if (G.currentMode == TEXT_EDITOR || this->type != DATA_ARRAY) return;
 
     switch (key) {
         case ARROW_UP:
