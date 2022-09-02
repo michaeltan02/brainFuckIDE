@@ -1,20 +1,28 @@
 # Brain Fuck IDE
 <pre>
-  __  __ _      _                _ _   ____            _        __            _      _____ _____  ______ 
- |  \/  (_)    | |              | ( ) |  _ \          (_)      / _|          | |    |_   _|  __ \|  ____|
- | \  / |_  ___| |__   __ _  ___| |/  | |_) |_ __ __ _ _ _ __ | |_ _   _  ___| | __   | | | |  | | |__   
- | |\/| | |/ __| '_ \ / _` |/ _ \ |   |  _ <| '__/ _` | | '_ \|  _| | | |/ __| |/ /   | | | |  | |  __|  
- | |  | | | (__| | | | (_| |  __/ |   | |_) | | | (_| | | | | | | | |_| | (__|   <   _| |_| |__| | |____ 
- |_|  |_|_|\___|_| |_|\__,_|\___|_|   |____/|_|  \__,_|_|_| |_|_|  \__,_|\___|_|\_\ |_____|_____/|______|
+  __  __ _      _                _ _       ____            _        __            _      _____ _____  ______ 
+ |  \/  (_)    | |              | ( )     |  _ \          (_)      / _|          | |    |_   _|  __ \|  ____|
+ | \  / |_  ___| |__   __ _  ___| |/ ___  | |_) |_ __ __ _ _ _ __ | |_ _   _  ___| | __   | | | |  | | |__   
+ | |\/| | |/ __| '_ \ / _` |/ _ \ | / __| |  _ <| '__/ _` | | '_ \|  _| | | |/ __| |/ /   | | | |  | |  __|  
+ | |  | | | (__| | | | (_| |  __/ | \__ \ | |_) | | | (_| | | | | | | | |_| | (__|   <   _| |_| |__| | |____ 
+ |_|  |_|_|\___|_| |_|\__,_|\___|_| |___/ |____/|_|  \__,_|_|_| |_|_|  \__,_|\___|_|\_\ |_____|_____/|______|                            
 </pre>                                                                                                        
                                                                                                          
 
 A terminal-based brainfuck IDE made in C, for Unix terminal
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Brainfuck Introduction
+Introduction
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-... to do
+This IDE is a combination of a basic but fully functional text editor, a brainfuck interpreter, and a brianfuck debugger.\
+The program will start with the editor window maximized, and split into **three windows (editor, data array, output)** upon hitting F5 (debug) or F6 (execute). 
+
+The focus of the program is on **visualization** of brainfuck execution. With each instruction executed, you will see exactly how the instruction pointer and data array updates. 
+Due to this focus, the program *does not perform optimization*. Instead, I decided to play to the strength of using an interpreter and designed the IDE to fully **support code editing during run-time**. 
+
+Below you will find a basic user guide, screenshots, the full list of features, list of hotkeys, brainfuck implementation decisions, and desgin decision/challenges. 
+
+P.S. If you have never heard of the esoteric langauge brainfuck, here is a quick video explaination: [Brainf**k in 100 Seconds](https://www.youtube.com/watch?v=hdHjjBS4cs8)
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 List of Features
@@ -92,8 +100,6 @@ __>  Draw Screen (this is when updates happen)
 |           V
 |    Process Keypress (either for typing, or changing the program's mode)
 |           |
-|           V
-|    Process Brainfuck (if in debug mode)
 |___________|
 </pre>
 
