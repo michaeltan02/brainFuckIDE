@@ -113,7 +113,7 @@ void resetBrainfuck(brainFuckModule* this);
 void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
 void brainfuckDie(char* error, brainFuckModule* this);
-void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this);
+void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this);
 
 //Windows and I/O
 //append buffer (dynamic string)
@@ -244,45 +244,8 @@ int main(int argc, char* argv[]) {
         globalRefreshScreen();
         int storedDirty = G.E.dirty;
         processKeypress();
-        
-        if (G.currentMode == DEBUG) {
-            if (G.E.dirty != storedDirty) {
-                G.B.regenerateStack = true;
-                setStatusMessage("Warning: code edited during runtime. Ctrl + C if you need to manually jump to different instruction");
-            }
-            
-            switch (G.B.debugMode) {
-                case STEP_BY_STEP:
-                case EXECUTION_ENDED:
-                    //this overwrite other status messages. Not a big problem, fix later
-                    processBrainFuck(&G.B);
-                    break;
-                case CONTINUE:
-                    while (G.B.debugMode == CONTINUE) {
-                        processBrainFuck(&G.B);
-
-                        //atempt at a pause button without interrupt mechanism
-                        //This works. However, it must be done sparsley cuz we made read() time out after 1/10th second. And if you are using bash on Windows, that set up just might not work.
-                        /*
-                        char c = '\0';
-                        read(STDIN_FILENO, &c, 1); //assuming read cannot crash the program in any way
-                        if (c == CTRL_KEY('p')) {
-                            G.B.debugMode = PAUSED;
-                            c = '\0';
-                        }
-                        */
-                    }
-                    break;
-                case STEPPING_OUT: 
-                    {
-                        int curStackSize = G.B.bracketStack.top;
-                        while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
-                            processBrainFuck(&G.B);
-                        }
-                        G.B.debugMode = PAUSED;
-                    }
-                break;
-            }
+        if (G.E.dirty != storedDirty) { //not sure if this is better than keeping it all in processKeyPress
+            G.B.regenerateStack = true; 
         }
     }
 
@@ -709,11 +672,13 @@ void processKeypress() {
     static int curQuitTimes = QUIT_TIMES;   //preserve value even after going out of scope. Don't get re-initialized
     
     int c = readKey();
-    //updateWindowSizes();
 
     switch (c) {
         case '\r':
-            windowInsertNewLine(&G.E);
+            if (G.activeWindow == TEXT_EDITOR) {
+                windowInsertNewLine(&G.E);
+                G.B.regenerateStack = true; 
+            }
             break;
         case CTRL_KEY('q'):
             if (G.E.dirty && curQuitTimes > 0) {
@@ -729,14 +694,13 @@ void processKeypress() {
             editorSave();
             break;
         case CTRL_KEY('i'):
-            //manually set brainfuck cursor
-             if (G.currentMode == DEBUG) {
+            //manually set brainfuck inst ptr to cursor location
+            if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
                 G.B.instX = G.E.cx;
                 G.B.instY = G.E.cy;
-                G.B.regenerateStack = true;
                 setStatusMessage("Instruction jumped to (%d, %d)", G.B.instX, G.B.instY);
                 regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
-             }
+            }
             break;
         case CTRL_KEY('w'):
             //swiching active window
@@ -769,7 +733,6 @@ void processKeypress() {
                 for (int times = G.E.windowRows - 1; times > 0; times--) {
                     moveCursorChecking( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.E);
                 }
-                
             }
             break;
         case HOME_KEY:
@@ -786,6 +749,7 @@ void processKeypress() {
             if (G.activeWindow == TEXT_EDITOR) {
                 if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.E);
                 windowDelChar(&G.E);
+                G.B.regenerateStack = true; 
             }
             break;
         case ARROW_UP:
@@ -800,6 +764,8 @@ void processKeypress() {
             }
             break;
         case CTRL_UP:
+        case CTRL_DOWN:
+            break;
         case CTRL_LEFT:
             while (1) {
                 moveCursorChecking(ARROW_LEFT, &G.E);
@@ -813,7 +779,6 @@ void processKeypress() {
                     G.E.cx == 0) break;
             }
             break;
-        case CTRL_DOWN:
         case CTRL_RIGHT:
             while (1){
                 moveCursorChecking(ARROW_RIGHT, &G.E);
@@ -844,15 +809,29 @@ void processKeypress() {
             else if (G.currentMode != EDIT  && G.B.debugMode != EXECUTION_ENDED) {
                 //continue
                 G.B.debugMode = CONTINUE;
+                while (G.B.debugMode == CONTINUE) {
+                    processBrainFuck(&G.B);
+                    /*
+                    //atempt at a pause button without interrupt mechanism
+                    char c = '\0';
+                    read(STDIN_FILENO, &c, 1); //assuming read cannot crash the program in any way
+                    if (c == CTRL_KEY('p')) {
+                        G.B.debugMode = PAUSED;
+                        c = '\0';
+                    }
+                    */
+                }
             }
             break;
         case F6_FUNCTION_KEY:
             //step into
             if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
                 G.B.debugMode = STEP_BY_STEP;
+                processBrainFuck(&G.B);
             }
             break;
-        case F7_FUNCTION_KEY: {
+        case F7_FUNCTION_KEY:
+            {
                 //step out
                 if (G.currentMode == DEBUG  && G.B.debugMode != EXECUTION_ENDED) {
                     if (G.B.regenerateStack) {
@@ -860,7 +839,12 @@ void processKeypress() {
                     }
                     bool inALoop = !coordStackIsEmpty(&G.B.bracketStack);
                     if (inALoop) {
+                        int curStackSize = G.B.bracketStack.top;
                         G.B.debugMode = STEPPING_OUT;
+                        while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
+                            processBrainFuck(&G.B);
+                        }
+                        G.B.debugMode = PAUSED;
                     }
                     else {
                         setStatusMessage("Not in loop");
@@ -881,7 +865,7 @@ void processKeypress() {
             }
             break;
         case F9_FUNCTION_KEY:
-            //stop
+            // quit to editor
             activeWindowSwicher(TEXT_EDITOR);
             if (G.currentMode != EDIT) {
                 modeSwitcher(EDIT);
@@ -927,6 +911,7 @@ void processKeypress() {
                     }
                     moveCursorChecking(ARROW_LEFT, &G.E);
                 }
+                G.B.regenerateStack = true; 
             }
             break;
         }
@@ -946,6 +931,7 @@ void processKeypress() {
                 else {
                     windowInsertChar(c, &G.E);
                 }
+                G.B.regenerateStack = true; 
             }
             break;
         }
@@ -969,6 +955,7 @@ void processKeypress() {
                 else {
                     windowInsertChar(c, &G.E);
                 }
+                G.B.regenerateStack = true; 
             }
             break;
         }
@@ -976,6 +963,7 @@ void processKeypress() {
             if (G.activeWindow == TEXT_EDITOR) {
                 if ( (c > 31 && c < 127) || c == '\t') {
                     windowInsertChar(c, &G.E);
+                    G.B.regenerateStack = true; 
                 }
             }
             break;
@@ -1768,7 +1756,7 @@ void processBrainFuck(brainFuckModule* this) {
     ++(this->instCounter);
 }
 
-void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* this) {
+void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this) {
     if (!this->regenerateStack) return;
 
     coordStackInit(&this->bracketStack);
@@ -1777,14 +1765,14 @@ void regenerateBracketStack(int savedInstX, int savedInstY, brainFuckModule* thi
     
     //traverse till we reach the closing bracket
     bool skipping = true;
-    while (!(this->instY == savedInstY && this->instX == savedInstX)) {
+    while (!(this->instY == stopPointY && this->instX == stopPointX)) {
         //validate inst just in case
         if (this->instY >= G.E.numRows) {
             return;
         }
         if (this->instX >= G.E.row[this->instY].size) {
             instForward();
-            break;
+            continue;;
         }
 
         char curInst = G.E.row[this->instY].chars[this->instX];
