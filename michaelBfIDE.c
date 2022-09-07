@@ -20,6 +20,7 @@
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define MICHAEL_IDE_VER "0.7"
+#define UNDO_STACK_SIZE 200
 
 // User Tweakable Parameters
 #define TAB_STOP 4
@@ -147,7 +148,6 @@ typedef struct window {
     int dirty;
 } window;
 
-
 //window member functions
 void resetWindow(windowType givenType, window* this);
 
@@ -161,10 +161,11 @@ void freeRow(erow* row);
 void windowDelRow(int at, window* this);
 void windowRowAppendString(erow* row, char* s, size_t len);
 
-    //window operation (all need refactor)
-void windowInsertChar(int c, window* this);
-void windowInsertNewLine(window* this);
-void windowDelChar(window* this);
+    //window operation
+void windowInsertChar(int c, window* this, bool saveUndo);
+void windowInsertNewLine(window* this, bool saveUndo);
+void windowDelChar(window* this, bool saveUndo);
+void editorUndo();
 
     //file i/o
 void editorOpen(char* fileName);
@@ -190,6 +191,32 @@ void drawMessageBar(struct abuf* ab);
 void setStatusMessage(const char* fmt, ...);
 void basicMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking
 
+// Undo struct and stack
+typedef enum editorAction {
+    ADDITION = 0,
+    DELETION,
+    LINE_BREAK,
+    LINE_JOIN
+} editorAction;
+
+typedef struct undoStruct {
+    int x;
+    int y;
+    editorAction action;
+    char delChar;
+} undoStruct;
+
+typedef struct undoStack {
+    int top;
+    undoStruct stackArray[UNDO_STACK_SIZE];
+} undoStack;
+
+//stack member functions
+void undoStackInit(undoStack* this);
+void undoStackPush(int x, int y, editorAction action, char delChar, undoStack* this);
+undoStruct undoStackPop(undoStack* this); //return {0,0,0,0} if stack empty
+bool undoStackIsEmpty(undoStack* this);
+
 struct globalEnvironment {
     //information
     struct termios orig_termio;
@@ -209,6 +236,8 @@ struct globalEnvironment {
     windowType activeWindow;
     window* activeWindowPtr;
     topMode currentMode;
+
+    undoStack editorUndoStack;
 };
 
 //Global environmnet member functions
@@ -413,7 +442,6 @@ int getCursorPosition(int* rows, int* cols) {
     if (sscanf(&buf[2], "%d;%d", rows, cols) !=2) return -1;
 }
 
-
 //row operation
 void windowInsertRow(int at, char* s, size_t len, window* this) {
     if (at < 0 || at > this->numRows) return;
@@ -518,7 +546,7 @@ void windowRowAppendString(erow * row, char* s, size_t len) {
     windowUpdateRow(row);
 }
 
-void windowInsertChar(int c, window* this) {
+void windowInsertChar(int c, window* this, bool saveUndo) {
     if (this->cy == this->numRows) {
         windowInsertRow(this->numRows,"", 0, this);
     }
@@ -531,10 +559,14 @@ void windowInsertChar(int c, window* this) {
     }
 
     this->cx++;
-    this->dirty++;    
+    this->dirty++;
+
+    if (saveUndo) {
+        undoStackPush(G.E.cx, G.E.cy, ADDITION, '\0', &G.editorUndoStack);
+    }
 }
 
-void windowInsertNewLine(window* this) {
+void windowInsertNewLine(window* this, bool saveUndo) {
     erow* row = &this->row[this->cy];
     if (this->cx == 0) {
         windowInsertRow(this->cy, "", 0, this);
@@ -573,16 +605,22 @@ void windowInsertNewLine(window* this) {
     this->cy++;
     this->cx = 0;
 
+    if (saveUndo) {
+        undoStackPush(G.E.cx, G.E.cy, LINE_BREAK, '\0', &G.editorUndoStack);
+    }
+
     while (numTab) {
-        windowInsertChar('\t', this);
+        windowInsertChar('\t', this, true);
         numTab--;
     }
 }
 
-void windowDelChar(window* this) {
+void windowDelChar(window* this, bool saveUndo) {
     if (this->cy == this->numRows) return;
     if (this->cx == 0 && this->cy == 0) return;
+
     if (this->cx > 0) {
+        char delChar = this->row[this->cy].chars[this->cx - 1];
         windowRowDelChar(&this->row[this->cy], this->cx - 1);
 
         if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
@@ -592,6 +630,10 @@ void windowDelChar(window* this) {
         }
 
         this->cx--;
+
+        if (saveUndo) {
+            undoStackPush(G.E.cx, G.E.cy, DELETION, delChar, &G.editorUndoStack);
+        }
     }
     else {
         if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
@@ -608,8 +650,44 @@ void windowDelChar(window* this) {
         windowRowAppendString(&this->row[this->cy - 1], this->row[this->cy].chars, this->row[this->cy].size);
         windowDelRow(this->cy, this);
         this->cy--;
+
+        if (saveUndo) {
+            undoStackPush(G.E.cx, G.E.cy, LINE_JOIN, '\0', &G.editorUndoStack);
+        }
     }
     this->dirty++;
+}
+
+void editorUndo() {
+    if (G.activeWindow != TEXT_EDITOR) return;
+
+    if (!undoStackIsEmpty(&G.editorUndoStack)) {
+        undoStruct actionToUndo = undoStackPop(&G.editorUndoStack);
+        //do a check here, just in case
+        G.E.cx = actionToUndo.x;
+        G.E.cy = actionToUndo.y;
+        
+        switch (actionToUndo.action) {
+            case ADDITION:
+                windowDelChar(&G.E, false);
+                setStatusMessage("Undid addition");
+                break;
+            case LINE_BREAK:
+                //might want to check if cx is 0
+                windowDelChar(&G.E, false);
+                setStatusMessage("Undid line break");
+                break;
+            case DELETION:
+                windowInsertChar(actionToUndo.delChar, &G.E, false);
+                setStatusMessage("Undid deletion");
+                break;
+            case LINE_JOIN:
+                windowInsertNewLine(&G.E, false);
+                setStatusMessage("Undid line join");
+                break;
+        }
+        //maybe give 
+    }
 }
 
 //file i/o
@@ -701,8 +779,10 @@ void processKeypress() {
     switch (c) {
         case '\r':
             if (G.activeWindow == TEXT_EDITOR) {
-                windowInsertNewLine(&G.E);
-                G.B.regenerateStack = true; 
+                windowInsertNewLine(&G.E, true);
+                G.B.regenerateStack = true;
+                //coordStackPush(G.E.cx, G.E.cy, &G.editorUndoStack);
+
             }
             break;
         case CTRL_KEY('q'):
@@ -743,6 +823,11 @@ void processKeypress() {
                 }
             }
             break;
+        case CTRL_KEY('z'):
+            if (G.activeWindow == TEXT_EDITOR) {
+                editorUndo();
+            }
+            break;
         case PAGE_UP:
         case PAGE_DOWN: 
             {
@@ -773,7 +858,7 @@ void processKeypress() {
         case DEL_KEY:
             if (G.activeWindow == TEXT_EDITOR) {
                 if (c == DEL_KEY) moveCursorChecking(ARROW_RIGHT, &G.E);
-                windowDelChar(&G.E);
+                windowDelChar(&G.E, true);
                 G.B.regenerateStack = true; 
             }
             break;
@@ -910,19 +995,19 @@ void processKeypress() {
         case '{':
         case '[': {
             if (G.activeWindow == TEXT_EDITOR) {
-                windowInsertChar(c, &G.E);
+                windowInsertChar(c, &G.E, true);
                 char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                 //if cx is at end of row, curChar would be '\0'
                 if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
                     switch (c) {
                         case '(':
-                            windowInsertChar(')', &G.E);
+                            windowInsertChar(')', &G.E, true);
                             break;
                         case '{':
-                            windowInsertChar('}', &G.E);
+                            windowInsertChar('}', &G.E, true);
                             break;
                         case '[':
-                            windowInsertChar(']', &G.E);
+                            windowInsertChar(']', &G.E, true);
                             break;
                         case '"':
                         case 39:
@@ -930,7 +1015,7 @@ void processKeypress() {
                                 moveCursorChecking(ARROW_RIGHT, &G.E);
                             }
                             else {
-                                windowInsertChar(c, &G.E);
+                                windowInsertChar(c, &G.E, true);
                             }
                             break;
                     }
@@ -950,11 +1035,11 @@ void processKeypress() {
                         moveCursorChecking(ARROW_RIGHT, &G.E);
                     }
                     else {
-                        windowInsertChar(c, &G.E);
+                        windowInsertChar(c, &G.E, true);
                     }
                 }
                 else {
-                    windowInsertChar(c, &G.E);
+                    windowInsertChar(c, &G.E, true);
                 }
                 G.B.regenerateStack = true; 
             }
@@ -969,16 +1054,16 @@ void processKeypress() {
                         moveCursorChecking(ARROW_RIGHT, &G.E);
                     }
                     else if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
-                        windowInsertChar(c, &G.E);
-                        windowInsertChar(c, &G.E);
+                        windowInsertChar(c, &G.E, true);
+                        windowInsertChar(c, &G.E, true);
                         moveCursorChecking(ARROW_LEFT, &G.E);
                     }
                     else {
-                            windowInsertChar(c, &G.E);
+                            windowInsertChar(c, &G.E, true);
                     }
                 }
                 else {
-                    windowInsertChar(c, &G.E);
+                    windowInsertChar(c, &G.E, true);
                 }
                 G.B.regenerateStack = true; 
             }
@@ -987,8 +1072,9 @@ void processKeypress() {
         default:
             if (G.activeWindow == TEXT_EDITOR) {
                 if ( (c > 31 && c < 127) || c == '\t') {
-                    windowInsertChar(c, &G.E);
+                    windowInsertChar(c, &G.E, true);
                     G.B.regenerateStack = true; 
+                    //coordStackPush(G.E.cx, G.E.cy, &G.editorUndoStack);
                 }
             }
             break;
@@ -1420,6 +1506,8 @@ void globalInit() {
     G.statusMsg_time = 0;
     G.activeWindow = TEXT_EDITOR;
     G.activeWindowPtr = &G.E;
+
+    undoStackInit(&(G.editorUndoStack));
 }
 
 void abAppend(struct abuf * ab, const char * s, int len) {
@@ -1630,17 +1718,17 @@ void processBrainFuck(brainFuckModule* this) {
             switch (*dataPtr) {
                 case '\n': //ASCII 10
                 //case '\r': //ASCII 13
-                    windowInsertNewLine(&G.O);
+                    windowInsertNewLine(&G.O, false);
                     globalRefreshScreen();
                     break;
                 case 8: //backspace symbol
-                    windowDelChar(&G.O);
+                    windowDelChar(&G.O, false);
                     break;
                 case '\x1b':
                     break;
                 default:
                     if ((*dataPtr > 31 && *dataPtr < 127) || *dataPtr =='\t') { //tab is ASCII 9
-                        windowInsertChar(*dataPtr, &G.O);
+                        windowInsertChar(*dataPtr, &G.O, false);
                     }
                     break;
             }
@@ -1859,5 +1947,35 @@ coordinate coordStackTop(coordStack* this) {
 }
 
 bool coordStackIsEmpty(coordStack* this) {
+    return (this->top == -1);
+}
+
+void undoStackInit(undoStack* this) {
+    this->top = -1;
+}
+
+void undoStackPush(int x, int y, editorAction action, char delChar, undoStack* this) {
+    this->top++;
+    if (this->top < UNDO_STACK_SIZE) {
+        this->stackArray[this->top].x = x;
+        this->stackArray[this->top].y = y;
+        this->stackArray[this->top].action = action;
+        this->stackArray[this->top].delChar = delChar;
+    }
+    else {
+        //move mem later
+    }
+}
+
+undoStruct undoStackPop(undoStack* this) {
+    undoStruct returnStruct = {0,0,ADDITION,'\0'}; // just to have a default
+    if (this->top > -1) {
+        returnStruct = this->stackArray[this->top];
+        this->top--;
+    }
+    return returnStruct;
+}
+
+bool undoStackIsEmpty(undoStack* this) {
     return (this->top == -1);
 }
