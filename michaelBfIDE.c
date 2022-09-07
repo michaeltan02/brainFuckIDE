@@ -549,12 +549,14 @@ void windowInsertNewLine(window* this) {
     
     // auto-indent
     int numTab = 0;
-    for (int i = 0; i < this->cx; i++) { //check everything before cx for tabs
-        if (row->chars[i] == '\t') {
-            numTab++;
-        }
-        else {
-            break;
+    if (this->type == TEXT_EDITOR) {
+        for (int i = 0; i < this->cx; i++) { //check everything before cx for tabs
+            if (row->chars[i] == '\t') {
+                numTab++;
+            }
+            else {
+                break;
+            }
         }
     }
 
