@@ -570,7 +570,7 @@ void windowInsertNewLine(window* this) {
 
     this->cy++;
     this->cx = 0;
-    
+
     while (numTab) {
         windowInsertChar('\t', this);
         numTab--;
@@ -1324,15 +1324,24 @@ void drawOutput(struct abuf * ab) {
                 char* lineToPrint = &G.O.row[outRow].render[G.O.startCol];
                 G.O.rx = windowRowCxToRx(&G.O.row[outRow], G.O.cx);
                 for (int j = 0; j < len; j++) {
-                    if (G.activeWindow != OUTPUT && y == G.O.cy && G.E.startCol + j == G.O.rx - 1) {
+                    if (G.activeWindow != OUTPUT && y == G.O.cy && G.E.startCol + j == G.O.rx) {
                         abAppend(ab, "\x1b[7m", 4);
                     }
                     abAppend(ab, &lineToPrint[j], 1);
                     abAppend(ab, "\x1b[0m", 4);
                 }
+                if (G.activeWindow != OUTPUT && y == G.O.cy && len == G.O.rx) {
+                    abAppend(ab, "\x1b[7m \x1b[0m" , 9);
+                }
             }
             else {
-                abAppend(ab, "~", 1);
+                if (G.activeWindow != OUTPUT && y == G.O.cy) {
+                    abAppend(ab, "\x1b[7m~\x1b[0m" , 9);
+                }
+                else {
+                    abAppend(ab, "~", 1);
+                }
+                
             }
         }
         abAppend(ab, "\x1b[K\r\n", 5);  //clear line right of cursor
