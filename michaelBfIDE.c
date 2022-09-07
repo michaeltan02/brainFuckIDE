@@ -535,16 +535,27 @@ void windowInsertChar(int c, window* this) {
 }
 
 void windowInsertNewLine(window* this) {
+    erow* row = &this->row[this->cy];
     if (this->cx == 0) {
         windowInsertRow(this->cy, "", 0, this);
     }
     else {
-        erow* row = &this->row[this->cy];
         windowInsertRow(this->cy + 1, &row->chars[this->cx], row->size - this->cx, this);
         row = &this->row[this->cy]; //in case realloc change address of things
         row->size = this->cx;
         row->chars[row->size] = '\0';
         windowUpdateRow(row);
+    }
+    
+    // auto-indent
+    int numTab = 0;
+    for (int i = 0; i < this->cx; i++) { //check everything before cx for tabs
+        if (row->chars[i] == '\t') {
+            numTab++;
+        }
+        else {
+            break;
+        }
     }
 
     if (G.currentMode == DEBUG && this->type == TEXT_EDITOR) {
@@ -559,6 +570,11 @@ void windowInsertNewLine(window* this) {
 
     this->cy++;
     this->cx = 0;
+    
+    while (numTab) {
+        windowInsertChar('\t', this);
+        numTab--;
+    }
 }
 
 void windowDelChar(window* this) {
@@ -700,7 +716,7 @@ void processKeypress() {
         case CTRL_KEY('s'):
             editorSave();
             break;
-        case CTRL_KEY('i'):
+        case CTRL_KEY('p'):
             //manually set brainfuck inst ptr to cursor location
             if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
                 G.B.instX = G.E.cx;
