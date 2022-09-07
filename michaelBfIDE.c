@@ -648,16 +648,23 @@ void editorSave() {
     int len;
     char* buf = windowRowToString(&len, &G.E);
 
-    int fd = open(G.fileName, O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
+    int fd = open("michaelBFIDE_SAVE_BUFFER", O_RDWR | O_CREAT, 0644);  //RDWR for read & write, CREAT means create file if not exist, 0644 set permission
     if (fd != -1) {
         if (ftruncate(fd, len) != -1) {
         //ftruncate changes file sizze of len. Doing this instead of reseting entire file means we lose less stuff if write() fail. Better soln would be to use a buffer file 
             if (write(fd, buf, len) == len) {
-                close(fd);
                 free(buf);
-                G.E.dirty = 0;
-                setStatusMessage("%d bytes written to disk", len);
-                return;
+                close(fd);
+                remove(G.fileName); //gcc does this automatically for rename(), Visual Studio doesn't
+                if (rename("michaelBFIDE_SAVE_BUFFER", G.fileName) != -1) {
+                    G.E.dirty = 0;
+                    setStatusMessage("%d bytes written to disk", len);
+                    return;
+                }
+                else {
+                    setStatusMessage("Save buffer cannot be renamed. Error code: %s", strerror(errno));
+                    return;
+                }
             }
         }
         close(fd);
