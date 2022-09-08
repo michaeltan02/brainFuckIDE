@@ -50,7 +50,8 @@ enum editorKey {
     F7_FUNCTION_KEY,
     F8_FUNCTION_KEY,
     F9_FUNCTION_KEY,
-    F10_FUNCTION_KEY
+    F10_FUNCTION_KEY,
+    ALT_S
 };
 
 typedef enum windowType {
@@ -333,6 +334,7 @@ int readKey(void) {
     if (c == '\x1b') {
         char seq[5];
         if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+        if (seq[0] == 's') return ALT_S;
         if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
         if (seq[0] == '[') {
@@ -800,6 +802,17 @@ void processKeypress() {
         case CTRL_KEY('s'):
             editorSave();
             break;
+        case ALT_S: 
+            {
+                // save-as
+                char * backUpName = G.fileName;
+                G.fileName = NULL;
+                editorSave();
+                if (G.fileName == NULL) {
+                    G.fileName = backUpName;
+                }
+            }
+            break;
         case CTRL_KEY('p'):
             //manually set brainfuck inst ptr to cursor location
             if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
@@ -881,29 +894,39 @@ void processKeypress() {
         case CTRL_LEFT:
             while (1) {
                 moveCursorChecking(ARROW_LEFT, &G.E);
-                char curChar = G.E.row[G.E.cy].chars[G.E.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
-                if (curChar == ' ' || curChar == '(' ||
-                    curChar == ')' || curChar == '[' ||
-                    curChar == ']' || curChar == '.' ||
-                    curChar == '#' || curChar == '"' ||
-                    curChar == '\t' ||
-                    G.E.row[G.E.cy].chars[G.E.cx] == '"'||
-                    G.E.cx == 0) break;
+                if (G.E.cy < G.E.numRows) {
+                    char curChar = G.E.row[G.E.cy].chars[G.E.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
+                    if (curChar == ' ' || curChar == '(' ||
+                        curChar == ')' || curChar == '[' ||
+                        curChar == ']' || curChar == '.' ||
+                        curChar == '#' || curChar == '"' ||
+                        curChar == '\t' ||
+                        G.E.row[G.E.cy].chars[G.E.cx] == '"'||
+                        G.E.cx == 0) break;
+                }
+                else {
+                    break;
+                }
             }
             break;
         case CTRL_RIGHT:
             while (1){
                 moveCursorChecking(ARROW_RIGHT, &G.E);
-                char curChar = G.E.row[G.E.cy].chars[G.E.cx];
-                if (curChar == ' ' || curChar == '(' ||
-                    curChar == ')' || curChar == '[' ||
-                    curChar == ']' || curChar == '.' ||
-                    curChar == '&' || curChar == ',' ||
-                    curChar == ':' || curChar == '"' ||
-                    curChar == '\t' ||
-                    (G.E.row[G.E.cy].chars[G.E.cx-1] == '/' && G.E.row[G.E.cy].chars[G.E.cx-2] == '/')||
-                    G.E.row[G.E.cy].chars[G.E.cx-1] == '"'||
-                    G.E.cx == G.E.row[G.E.cy].size ) break;
+                if (G.E.cy < G.E.numRows) {
+                    char curChar = G.E.row[G.E.cy].chars[G.E.cx];
+                    if (curChar == ' ' || curChar == '(' ||
+                        curChar == ')' || curChar == '[' ||
+                        curChar == ']' || curChar == '.' ||
+                        curChar == '&' || curChar == ',' ||
+                        curChar == ':' || curChar == '"' ||
+                        curChar == '\t' ||
+                        (G.E.row[G.E.cy].chars[G.E.cx-1] == '/' && G.E.row[G.E.cy].chars[G.E.cx-2] == '/')||
+                        G.E.row[G.E.cy].chars[G.E.cx-1] == '"'||
+                        G.E.cx == G.E.row[G.E.cy].size ) break;
+                }
+                else {
+                    break;
+                }
             }
             break;
         case F1_FUNCTION_KEY:
