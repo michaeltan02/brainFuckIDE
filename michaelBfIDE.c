@@ -19,7 +19,7 @@
 
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
-#define MICHAEL_IDE_VER "0.7"
+#define MICHAEL_IDE_VER "0.9"
 #define UNDO_STACK_SIZE 200
 
 // User Tweakable Parameters
@@ -686,7 +686,9 @@ void editorUndo() {
                 setStatusMessage("Undid line join");
                 break;
         }
-        //maybe give 
+    }
+    else {
+        setStatusMessage("Nothing to undo");
     }
 }
 
@@ -935,7 +937,7 @@ void processKeypress() {
             break;
         case F6_FUNCTION_KEY:
             //step into
-            if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
+            if (G.currentMode == DEBUG /* && G.B.debugMode != EXECUTION_ENDED */) {
                 G.B.debugMode = STEP_BY_STEP;
                 processBrainFuck(&G.B);
             }
@@ -1956,15 +1958,20 @@ void undoStackInit(undoStack* this) {
 
 void undoStackPush(int x, int y, editorAction action, char delChar, undoStack* this) {
     this->top++;
-    if (this->top < UNDO_STACK_SIZE) {
-        this->stackArray[this->top].x = x;
-        this->stackArray[this->top].y = y;
-        this->stackArray[this->top].action = action;
-        this->stackArray[this->top].delChar = delChar;
+    if (this->top >= UNDO_STACK_SIZE) {
+        if (UNDO_STACK_SIZE % 2) { //size is odd
+            memmove(this->stackArray, &(this->stackArray[UNDO_STACK_SIZE / 2 + 1]), (UNDO_STACK_SIZE / 2) * sizeof(undoStruct));
+        }
+        else { // size is even
+            memmove(this->stackArray, &(this->stackArray[UNDO_STACK_SIZE / 2]), (UNDO_STACK_SIZE / 2) * sizeof(undoStruct));
+        }
+        this->top = UNDO_STACK_SIZE / 2;
     }
-    else {
-        //move mem later
-    }
+
+    this->stackArray[this->top].x = x;
+    this->stackArray[this->top].y = y;
+    this->stackArray[this->top].action = action;
+    this->stackArray[this->top].delChar = delChar;
 }
 
 undoStruct undoStackPop(undoStack* this) {
