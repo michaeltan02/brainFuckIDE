@@ -942,7 +942,7 @@ void processKeypress() {
                 globalRefreshScreen();
                 
             }
-            else if (G.currentMode != EDIT  && G.B.debugMode != EXECUTION_ENDED) {
+            else if (G.currentMode != EDIT) {
                 //continue
                 G.B.debugMode = CONTINUE;
                 globalRefreshScreen();
@@ -971,7 +971,7 @@ void processKeypress() {
                     processBrainFuck(&G.B);
                 }
             }
-            else if (G.currentMode == DEBUG /* && G.B.debugMode != EXECUTION_ENDED */) {
+            else if (G.currentMode == DEBUG) {
                 // step into
                 G.B.debugMode = STEP_BY_STEP;
                 globalRefreshScreen();
@@ -981,7 +981,10 @@ void processKeypress() {
         case F7_FUNCTION_KEY:
             {
                 //step out
-                if (G.currentMode == DEBUG  && G.B.debugMode != EXECUTION_ENDED) {
+                if (G.currentMode != EDIT  && G.B.debugMode == EXECUTION_ENDED) {
+                    processBrainFuck(&G.B); //just to display error message
+                }
+                else if (G.currentMode == DEBUG  && G.B.debugMode != EXECUTION_ENDED) {
                     if (G.B.regenerateStack) {
                         regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
                     }
