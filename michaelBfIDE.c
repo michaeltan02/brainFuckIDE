@@ -813,7 +813,7 @@ void processKeypress() {
                 }
             }
             break;
-        case CTRL_KEY('p'):
+        case CTRL_KEY('p'): // need change for pause
             //manually set brainfuck inst ptr to cursor location
             if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
                 G.B.instX = G.E.cx;
@@ -936,6 +936,7 @@ void processKeypress() {
             break;
         case F5_FUNCTION_KEY:
             if (G.currentMode == EDIT) {
+                // enter debug mode
                 resetBrainfuck(&G.B);
                 modeSwitcher(DEBUG);
                 globalRefreshScreen();
@@ -959,8 +960,18 @@ void processKeypress() {
             }
             break;
         case F6_FUNCTION_KEY:
-            //step into
-            if (G.currentMode == DEBUG /* && G.B.debugMode != EXECUTION_ENDED */) {
+            if (G.currentMode == EDIT) {
+                // enter execute mode
+                resetBrainfuck(&G.B);
+                modeSwitcher(EXECUTE);
+                globalRefreshScreen();
+                G.B.debugMode = CONTINUE;
+                while (G.B.debugMode == CONTINUE) {
+                    processBrainFuck(&G.B);
+                }
+            }
+            else if (G.currentMode == DEBUG /* && G.B.debugMode != EXECUTION_ENDED */) {
+                // step into
                 G.B.debugMode = STEP_BY_STEP;
                 processBrainFuck(&G.B);
             }
@@ -1276,7 +1287,7 @@ void globalRefreshScreen(){
     abAppend(&ab, "\x1b[?25l", 6); //hide cursor
     
     drawEditor(&ab);
-    if (G.currentMode == DEBUG) {
+    if (G.currentMode != EDIT) {
         drawBorder(&ab);
         drawDataArray(&ab);
         drawOutput(&ab);
@@ -1594,6 +1605,7 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
             G.E.windowRows = G.fullScreenRows - 2;
             break;
         case DEBUG:
+        case EXECUTE:
             G.E.windowCols = (G.fullScreenCols / 2) - 2;
             G.E.windowRows = (G.fullScreenRows * 3) / 5 - 2;
             break;
