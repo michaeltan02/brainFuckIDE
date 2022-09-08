@@ -945,6 +945,7 @@ void processKeypress() {
             else if (G.currentMode != EDIT  && G.B.debugMode != EXECUTION_ENDED) {
                 //continue
                 G.B.debugMode = CONTINUE;
+                globalRefreshScreen();
                 while (G.B.debugMode == CONTINUE) {
                     processBrainFuck(&G.B);
                     /*
@@ -964,8 +965,8 @@ void processKeypress() {
                 // enter execute mode
                 resetBrainfuck(&G.B);
                 modeSwitcher(EXECUTE);
-                globalRefreshScreen();
                 G.B.debugMode = CONTINUE;
+                globalRefreshScreen();
                 while (G.B.debugMode == CONTINUE) {
                     processBrainFuck(&G.B);
                 }
@@ -973,6 +974,7 @@ void processKeypress() {
             else if (G.currentMode == DEBUG /* && G.B.debugMode != EXECUTION_ENDED */) {
                 // step into
                 G.B.debugMode = STEP_BY_STEP;
+                globalRefreshScreen();
                 processBrainFuck(&G.B);
             }
             break;
@@ -984,6 +986,7 @@ void processKeypress() {
                         regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
                     }
                     bool inALoop = !coordStackIsEmpty(&G.B.bracketStack);
+                    globalRefreshScreen();
                     if (inALoop) {
                         int curStackSize = G.B.bracketStack.top;
                         G.B.debugMode = STEPPING_OUT;
@@ -1482,7 +1485,31 @@ void drawStatusBar(struct abuf * ab) {
     if (len > G.fullScreenCols) len = G.fullScreenCols;
     abAppend(ab, status, len);
 
-    int rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.E.cy + 1 , G.E.numRows);
+    int rightLen;
+    if (G.currentMode == EDIT) {
+        rightLen = snprintf(rightStatus, sizeof(rightStatus), "%d/%d", G.E.cy + 1 , G.E.numRows);
+    }
+    else {
+        char * mode = NULL;
+        switch (G.B.debugMode) {
+            case PAUSED:
+                mode = "Paused";
+                break;
+            case STEP_BY_STEP:
+                mode = "Step by Step";
+                break;
+            case CONTINUE:
+                mode = "Continue";
+                break;
+            case STEPPING_OUT:
+                mode = "Step Out";
+                break;
+            case EXECUTION_ENDED:
+                mode = G.B.errorMsg ? "Brainfucked" : "Finished";
+                break;
+        }
+        rightLen = snprintf(rightStatus, sizeof(rightStatus), "Line %d/%d | Debugger Mode: %s | Cell %d", G.E.cy + 1 , G.E.numRows, mode, G.B.arrayIndex);
+    }
     //fill rest of screen with spaces for the white bar effect
     while (len < G.fullScreenCols) {
         if (G.fullScreenCols - len == rightLen) {
@@ -1691,13 +1718,18 @@ void processBrainFuck(brainFuckModule* this) {
             setStatusMessage("Execution finished. \x1b[7;31mError: %s\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
         else {
+            if (this->regenerateStack) {
+                regenerateBracketStack(this->instX, this->instY, this);
+            }
             if (coordStackIsEmpty(&this->bracketStack)) {
                 setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
             }
             else {
                 int bracketX = coordStackTop(&this->bracketStack).x;
                 int bracketY = coordStackTop(&this->bracketStack).y;
-                setStatusMessage("Execution finished. \x1b[7;31mError: Opening bracket at {%d,%d} was not closed\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", bracketX, bracketY);
+                G.E.cx = bracketX;
+                G.E.cy = bracketY;
+                brainfuckDie("Opening bracket not closed.", this);
             }
         }
         return;
