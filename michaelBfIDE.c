@@ -18,6 +18,7 @@
 #include <fcntl.h>
 
 #include "config.h"
+#include "stacks.h"
 
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
@@ -71,26 +72,7 @@ typedef enum debuggerMode {
     EXECUTION_ENDED
 } debuggerMode;
 
-//brainfuck stuff
-typedef struct coordinate {
-    int x;
-    int y;
-} coordinate;
-
-typedef struct coordStack {
-    int top;
-    int size;
-    coordinate stackArray[100];
-} coordStack;
-
-//stack member functions
-void coordStackInit(coordStack* this);
-bool coordStackPush(int x, int y, coordStack* this);
-void coordStackPop(coordStack* this);
-coordinate coordStackTop(coordStack* this); //return {0,0} if stack empty
-bool coordStackIsEmpty(coordStack* this);
-
-//brainfuck logic
+/*** brainfuck logic ***/
 typedef struct brainFuckModule {
     unsigned char dataArray[30000];
     int arraySize;
@@ -116,10 +98,10 @@ void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* thi
 
 //Windows and I/O
 //append buffer (dynamic string)
-struct abuf {
+typedef struct abuf {
     char* b;
     int len;
-};
+} abuf;
 
 #define ABUF_INIT {NULL, 0}
 void abAppend(struct abuf* ab, const char* s, int len);
@@ -150,6 +132,7 @@ typedef struct window {
 void resetWindow(windowType givenType, window* this);
 
     //row operation
+    //a bunch of this row stuff that doesn't depend on window can be in their own file
 void windowInsertRow(int at, char*s, size_t len, window* this);
 void windowUpdateRow(erow* row);
 int windowRowCxToRx(erow* row, int cx);
@@ -179,41 +162,17 @@ char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no 
     //output
 void windowScroll(window* this);
 void dataArrayScroll(window* this);
+
 void globalRefreshScreen(void);
-void drawEditor(struct abuf* ab);
-void drawBorder(struct abuf* ab);
-void drawDataArray(struct abuf* ab);
-void drawOutput(struct abuf* ab);
-void drawStatusBar(struct abuf* ab);
-void drawMessageBar(struct abuf* ab);
+void setGlobalCursor(abuf* ab, int x, int y); //set cursor to arbitary position, no rule checking
+void drawEditor(abuf* ab);
+void drawBorder(abuf* ab);
+void drawDataArray(abuf* ab);
+void drawOutput(abuf* ab);
+void drawStatusBar(abuf* ab);
+void drawMessageBar(abuf* ab);
 void setStatusMessage(const char* fmt, ...);
-void basicMoveCursor(struct abuf* ab, int x, int y); //move cursor to arbitary position, no rule checking
 
-// Undo struct and stack
-typedef enum editorAction {
-    ADDITION = 0,
-    DELETION,
-    LINE_BREAK,
-    LINE_JOIN
-} editorAction;
-
-typedef struct undoStruct {
-    int x;
-    int y;
-    editorAction action;
-    char delChar;
-} undoStruct;
-
-typedef struct undoStack {
-    int top;
-    undoStruct stackArray[UNDO_STACK_SIZE];
-} undoStack;
-
-//stack member functions
-void undoStackInit(undoStack* this);
-void undoStackPush(int x, int y, editorAction action, char delChar, undoStack* this);
-undoStruct undoStackPop(undoStack* this); //return {0,0,0,0} if stack empty
-bool undoStackIsEmpty(undoStack* this);
 
 struct globalEnvironment {
     //information
@@ -1241,7 +1200,6 @@ char* promptInput(char * prompt, int inputSizeLimit){
     }
 }
 
-//output
 void windowScroll(window* this) {
     //first process tabs. Each time E.cx get change, we will get to here, and then calculate the correct E.rx to show
     this->rx = 0;
@@ -1278,6 +1236,7 @@ void dataArrayScroll(window* this) {
     G.dataArray.rx = G.dataArray.cx * 4 + 1; 
 }
 
+// output functions
 void globalRefreshScreen(){
     windowScroll(&G.E);
     if (G.currentMode != TEXT_EDITOR) { 
@@ -1301,7 +1260,7 @@ void globalRefreshScreen(){
     //do smth diff when we allow for diff cursor
     int activeWindowX = G.activeWindowPtr->rx - G.activeWindowPtr->startCol + 1 + G.activeWindowPtr->startPosX;
     int activeWindowY = G.activeWindowPtr->cy - G.activeWindowPtr->startRowOrCell + 1 + G.activeWindowPtr->startPosY;
-    basicMoveCursor(&ab, activeWindowX, activeWindowY);
+    setGlobalCursor(&ab, activeWindowX, activeWindowY);
     
     abAppend(&ab, "\x1b[?25h", 6);
     write(STDOUT_FILENO, ab.b, ab.len);
@@ -1385,18 +1344,18 @@ void drawEditor(struct abuf * ab) {
 }
 
 void drawBorder(struct abuf * ab){
-    basicMoveCursor(ab, G.E.windowCols + 1, 0);
+    setGlobalCursor(ab, G.E.windowCols + 1, 0);
     for (int y = 0; y < G.E.windowRows; y++) {
         abAppend(ab, "|\x1b[D\x1b[B", 7);
     }
-    basicMoveCursor(ab, 0, G.E.windowRows + 1);
+    setGlobalCursor(ab, 0, G.E.windowRows + 1);
     for (int x = 0; x < G.fullScreenCols; x++) {
         abAppend(ab, "=", 1);
     }
 }
 
 void drawDataArray(struct abuf * ab){
-    basicMoveCursor(ab, G.dataArray.startPosX, G.dataArray.startPosY);
+    setGlobalCursor(ab, G.dataArray.startPosX, G.dataArray.startPosY);
 
     char buf[10];
     
@@ -1425,13 +1384,13 @@ void drawDataArray(struct abuf * ab){
         }
         //clear right of screen, then move down
         abAppend(ab, "\x1b[K", 3);
-        basicMoveCursor(ab, G.dataArray.startPosX, i + 2); //screen is actually 1-based. 0 is just default value, which just happens to move start of line/col
+        setGlobalCursor(ab, G.dataArray.startPosX, i + 2); //screen is actually 1-based. 0 is just default value, which just happens to move start of line/col
     }
 }
 
  //I may be able to make all 3 window-drawing function one big functions, but there is no advantage
 void drawOutput(struct abuf * ab) {
-    basicMoveCursor(ab, G.O.startPosX, G.O.startPosY);
+    setGlobalCursor(ab, G.O.startPosX, G.O.startPosY);
     for (int y = -1; y < G.O.windowRows - 1; y++){
         int outRow = G.O.startRowOrCell + y;
         if (y == -1) { //"Output:" in bold (use -1 so we don't mess up outRow)
@@ -1476,7 +1435,7 @@ void drawOutput(struct abuf * ab) {
 }
 
 void drawStatusBar(struct abuf * ab) {
-    basicMoveCursor(ab, 0, G.fullScreenRows - 1);
+    setGlobalCursor(ab, 0, G.fullScreenRows - 1);
     
     abAppend(ab, "\x1b[7m", 4); //invert color, will also use for selection
     //file name
@@ -1548,7 +1507,7 @@ void drawMessageBar(struct abuf * ab) {
     abAppend(ab, "\x1b[m", 3);
 }
 
-void basicMoveCursor(struct abuf * ab, int x, int y) {
+void setGlobalCursor(struct abuf * ab, int x, int y) {
     char buf[32];
     snprintf(buf, sizeof(buf),"\x1b[%d;%dH", y, x);
     abAppend(ab, buf, strlen(buf));
@@ -1657,7 +1616,7 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
     }
 }
 
-//Barinfuck (these functions don't really need this ptr, but I already implemented it)
+/*** Barinfuck logic functions ***/
 void resetBrainfuck(brainFuckModule* this){
     this->arraySize = 30000;
     memset(this->dataArray, 0, 30000);  //turn this into dynamic later
@@ -1676,6 +1635,7 @@ void resetBrainfuck(brainFuckModule* this){
     this->errorMsg = NULL;
 }
 
+// need an inst window ptr
 void instForward() { //igores comments
     char nextChar = '\0';
     while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
@@ -1701,6 +1661,7 @@ void instForward() { //igores comments
     }
 }
 
+// need a parent ptr
 void brainfuckDie(char* error, brainFuckModule* this) {
     this->debugMode = EXECUTION_ENDED;
     setStatusMessage("\x1b[7;31mError: %s\x1b[0m\x1b[7m", error);
@@ -1783,17 +1744,14 @@ void processBrainFuck(brainFuckModule* this) {
             instForward();
             break;
         case '.':
-            //also check for change line and delete
             switch (*dataPtr) {
                 case '\n': //ASCII 10
-                //case '\r': //ASCII 13
                     windowInsertNewLine(&G.O, false);
                     globalRefreshScreen();
                     break;
                 case 8: //backspace symbol
+                case BACKSPACE:
                     windowDelChar(&G.O, false);
-                    break;
-                case '\x1b':
                     break;
                 default:
                     if ((*dataPtr > 31 && *dataPtr < 127) || *dataPtr =='\t') { //tab is ASCII 9
@@ -1976,80 +1934,4 @@ void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* thi
         instForward();
     }
     this->regenerateStack = false;
-}
-
-//coordinate stack
-void coordStackInit(coordStack* this) {
-    this->top = -1;
-    this->size = 100;
-    //make this dynamic later
-}
-
-bool coordStackPush(int x, int y, coordStack* this) {
-    this->top++;
-    if (this->top < this->size) {
-        this->stackArray[this->top].x = x;
-        this->stackArray[this->top].y = y;
-    }
-    else {
-        //allocate more memory when dynamic
-        brainfuckDie("Loop stack full.", &G.B);
-        return false;
-    }
-}
-
-void coordStackPop(coordStack* this) {
-    if (this->top > -1) {
-        this->top--;
-    }
-}
-
-coordinate coordStackTop(coordStack* this) {
-    if (this->top > -1 && this->top < this->size) {
-        return (this->stackArray[this->top]);
-    }
-    else {
-        brainfuckDie("Tried to pop empty stack. Returned {0,0}.", &G.B);
-        coordinate zeroCoord = {0,0};
-        return zeroCoord;
-    }
-}
-
-bool coordStackIsEmpty(coordStack* this) {
-    return (this->top == -1);
-}
-
-void undoStackInit(undoStack* this) {
-    this->top = -1;
-}
-
-void undoStackPush(int x, int y, editorAction action, char delChar, undoStack* this) {
-    this->top++;
-    if (this->top >= UNDO_STACK_SIZE) {
-        if (UNDO_STACK_SIZE % 2) { //size is odd
-            memmove(this->stackArray, &(this->stackArray[UNDO_STACK_SIZE / 2 + 1]), (UNDO_STACK_SIZE / 2) * sizeof(undoStruct));
-        }
-        else { // size is even
-            memmove(this->stackArray, &(this->stackArray[UNDO_STACK_SIZE / 2]), (UNDO_STACK_SIZE / 2) * sizeof(undoStruct));
-        }
-        this->top = UNDO_STACK_SIZE / 2;
-    }
-
-    this->stackArray[this->top].x = x;
-    this->stackArray[this->top].y = y;
-    this->stackArray[this->top].action = action;
-    this->stackArray[this->top].delChar = delChar;
-}
-
-undoStruct undoStackPop(undoStack* this) {
-    undoStruct returnStruct = {0,0,ADDITION,'\0'}; // just to have a default
-    if (this->top > -1) {
-        returnStruct = this->stackArray[this->top];
-        this->top--;
-    }
-    return returnStruct;
-}
-
-bool undoStackIsEmpty(undoStack* this) {
-    return (this->top == -1);
 }

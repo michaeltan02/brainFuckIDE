@@ -1,3 +1,4 @@
+#pragma once
 // config.h -- user tweakable parameters
 
 #define TAB_STOP 4
