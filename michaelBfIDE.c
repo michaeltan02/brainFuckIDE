@@ -17,14 +17,11 @@
 #include <stdarg.h>
 #include <fcntl.h>
 
+#include "config.h"
+
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
 #define MICHAEL_IDE_VER "0.9"
-#define UNDO_STACK_SIZE 200
-
-// User Tweakable Parameters
-#define TAB_STOP 4
-#define QUIT_TIMES 2
 
 enum editorKey {
     BACKSPACE = 127,
