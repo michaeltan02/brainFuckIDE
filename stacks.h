@@ -1,9 +1,10 @@
 #pragma once
 /*** undo stack, coordinate stack, and their corresponding structs ***/
-#include "config.h"
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "config.h"
 
 /*** Coordinate struct and stack ***/
 typedef struct coordinate {
