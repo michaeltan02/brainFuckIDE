@@ -1816,7 +1816,20 @@ void processBrainFuck(brainFuckModule* this) {
     G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells;
 
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
-    ++(this->instCounter);
+
+    // auto-breakpoint request system
+    if (this->debugMode == PAUSED) {
+        this->instCounter = 0;
+    }
+    else {
+        ++(this->instCounter);
+        if (this->instCounter > BREAK_POINT_REQUEST_THRESHOLD) {
+            this->instCounter = 0;
+            this->debugMode = PAUSED;
+            setStatusMessage("Interpreter executed too long (>%.1E instructions). Breakpoint requested", BREAK_POINT_REQUEST_THRESHOLD);
+        }
+    }
+    
 }
 
 void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this) {
@@ -1845,14 +1858,7 @@ void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* thi
             }
         }
         else if (curInst == ']') {
-            if (!coordStackIsEmpty(&this->bracketStack)) {
-            coordStackPop(&this->bracketStack);
-            }
-            else {
-                G.E.cx = this->instX;
-                G.E.cy = this->instY;
-                brainfuckDie("Cannot find opening bracket.", this);
-            }
+            coordStackPop(&this->bracketStack); // don't check if ] is valid
         }
         instForward();
     }
