@@ -812,27 +812,22 @@ void processKeypress() {
         case F5_FUNCTION_KEY:
             if (G.currentMode == EDIT) {
                 // enter debug mode
+                // maybe make a validityCheck function and put here
                 resetBrainfuck(&G.B);
                 modeSwitcher(DEBUG);
                 setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
-                globalRefreshScreen();
-                
             }
             else if (G.currentMode != EDIT) {
                 //continue
-                G.B.debugMode = CONTINUE;
-                globalRefreshScreen();
-                while (G.B.debugMode == CONTINUE) {
+                if (G.B.debugMode == EXECUTION_ENDED) {
                     processBrainFuck(&G.B);
-                    /*
-                    //atempt at a pause button without interrupt mechanism
-                    char c = '\0';
-                    read(STDIN_FILENO, &c, 1); //assuming read cannot crash the program in any way
-                    if (c == CTRL_KEY('p')) {
-                        G.B.debugMode = PAUSED;
-                        c = '\0';
+                }
+                else {
+                    G.B.debugMode = CONTINUE;
+                    globalRefreshScreen();
+                    while (G.B.debugMode == CONTINUE) {
+                        processBrainFuck(&G.B);
                     }
-                    */
                 }
             }
             break;
@@ -849,8 +844,9 @@ void processKeypress() {
             }
             else if (G.currentMode == DEBUG) {
                 // step into
-                G.B.debugMode = STEP_BY_STEP;
-                globalRefreshScreen();
+                if (G.B.debugMode != EXECUTION_ENDED) {
+                    G.B.debugMode = STEP_BY_STEP;
+                }
                 processBrainFuck(&G.B);
             }
             break;
@@ -1309,7 +1305,7 @@ void drawDataArray(struct abuf * ab){
  //I may be able to make all 3 window-drawing function one big functions, but there is no advantage
 void drawOutput(struct abuf * ab) {
     setGlobalCursor(ab, G.O.startPosX, G.O.startPosY);
-    for (int y = -1; y < G.O.windowRows - 1; y++){
+    for (int y = -1; y < G.O.windowRows; y++){
         int outRow = G.O.startRowOrCell + y;
         if (y == -1) { // "Output:" in bold (use -1 so we don't mess up outRow)
             abAppend(ab, "\x1b[1;37m", 7);
@@ -1326,19 +1322,19 @@ void drawOutput(struct abuf * ab) {
                 char* lineToPrint = &G.O.row[outRow].render[G.O.startCol];
                 G.O.rx = windowCxToRx(&G.O.row[outRow], G.O.cx);
                 for (int j = 0; j < len; j++) {
-                    if (G.activeWindow != OUTPUT && y == G.O.cy && G.E.startCol + j == G.O.rx) {
-                        abAppend(ab, "\x1b[7m", 4);
+                    if (G.activeWindow != OUTPUT && outRow == G.O.cy && G.E.startCol + j == G.O.rx) {
+                        abAppend(ab, "\x1b[7m", 4); // when cursor is be on top a char
                     }
                     abAppend(ab, &lineToPrint[j], 1);
                     abAppend(ab, "\x1b[0m", 4);
                 }
-                if (G.activeWindow != OUTPUT && y == G.O.cy && len == G.O.rx) {
-                    abAppend(ab, "\x1b[7m \x1b[0m" , 9);
+                if (G.activeWindow != OUTPUT && outRow == G.O.cy && len == G.O.rx) {
+                    abAppend(ab, "\x1b[7m \x1b[0m" , 9); // when cursor is after end of line
                 }
             }
             else {
-                if (G.activeWindow != OUTPUT && y == G.O.cy) {
-                    abAppend(ab, "\x1b[7m~\x1b[0m" , 9);
+                if (G.activeWindow != OUTPUT && outRow == G.O.cy) {
+                    abAppend(ab, "\x1b[7m~\x1b[0m" , 9); // when cursor is moved to a tilde
                 }
                 else {
                     abAppend(ab, "~", 1);
@@ -1528,7 +1524,7 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
         G.O.startPosX = 0;
         G.O.startPosY = G.E.windowRows + 2;
         G.O.windowCols = G.fullScreenCols;
-        G.O.windowRows = G.fullScreenRows - G.E.windowRows - 1 - 2; //1 for border, 2 for status bar/message
+        G.O.windowRows = G.fullScreenRows - G.E.windowRows - 4; //1 for border, 2 for status bar/message , 1 for the Output line
     }
 }
 
@@ -1590,7 +1586,6 @@ void processBrainFuck(brainFuckModule* this) {
     if (this->instY >= G.E.numRows || this->debugMode == EXECUTION_ENDED) {
         this->debugMode = EXECUTION_ENDED;
         
-        //put this in status bar (running vs finished and if error encountered in permanat status bar)
         if (this->errorMsg) {
             setStatusMessage("Execution finished. \x1b[7;31mError: %s\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
@@ -1598,14 +1593,13 @@ void processBrainFuck(brainFuckModule* this) {
             if (this->regenerateStack) {
                 regenerateBracketStack(this->instX, this->instY, this);
             }
+
             if (coordStackIsEmpty(&this->bracketStack)) {
                 setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
             }
             else {
-                int bracketX = coordStackTop(&this->bracketStack).x;
-                int bracketY = coordStackTop(&this->bracketStack).y;
-                G.E.cx = bracketX;
-                G.E.cy = bracketY;
+                G.E.cx = coordStackTop(&this->bracketStack).x;
+                G.E.cy = coordStackTop(&this->bracketStack).y;
                 brainfuckDie("Opening bracket not closed.", this);
             }
         }
@@ -1613,7 +1607,7 @@ void processBrainFuck(brainFuckModule* this) {
     }
 
     if (this->instX >= G.E.row[this->instY].size) {
-        //This gets triggered on empty line. Can also happen when user delete stuff in run time
+        // This gets triggered on empty line. Can also happen when user delete stuff in run time
         instForward();
         return;
     }
@@ -1623,7 +1617,7 @@ void processBrainFuck(brainFuckModule* this) {
     //validate data cell
     if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
         this->debugMode = EXECUTION_ENDED;
-        //preseumably there should be an error message set already
+        // preseumably there should be an error message set already
         return;
     }
 
@@ -1737,7 +1731,7 @@ void processBrainFuck(brainFuckModule* this) {
             if(*dataPtr){
                 //add bracket loc to stack
                 if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
-                    brainfuckDie("Loop stack overflow.", &G.B);
+                    brainfuckDie("Loop stack overflow.", this);
                 }
                 instForward();
             }
@@ -1763,7 +1757,7 @@ void processBrainFuck(brainFuckModule* this) {
 
                     if (curInst == '[') {
                         if (!coordStackPush(this->instX, this->instY, &stackForSkippping)) {
-                            brainfuckDie("Loop stack full.", &G.B);
+                            brainfuckDie("Loop stack full.", this);
                         }
                         instForward();
                     }
@@ -1847,11 +1841,18 @@ void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* thi
         char curInst = G.E.row[this->instY].chars[this->instX];
         if (curInst == '[') {
             if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
-                brainfuckDie("Loop stack full.", &G.B);
+                brainfuckDie("Loop stack full.", this);
             }
         }
         else if (curInst == ']') {
+            if (!coordStackIsEmpty(&this->bracketStack)) {
             coordStackPop(&this->bracketStack);
+            }
+            else {
+                G.E.cx = this->instX;
+                G.E.cy = this->instY;
+                brainfuckDie("Cannot find opening bracket.", this);
+            }
         }
         instForward();
     }
