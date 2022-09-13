@@ -12,6 +12,7 @@ bool coordStackPush(int x, int y, coordStack* this) {
     if (this->top < this->size) {
         this->stackArray[this->top].x = x;
         this->stackArray[this->top].y = y;
+        return true;
     }
     else {
         //allocate more memory when dynamic

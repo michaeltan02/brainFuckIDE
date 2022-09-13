@@ -662,8 +662,6 @@ void processKeypress() {
             if (G.activeWindow == TEXT_EDITOR) {
                 windowInsertNewLine(&G.E, true);
                 G.B.regenerateStack = true;
-                //coordStackPush(G.E.cx, G.E.cy, &G.editorUndoStack);
-
             }
             break;
         case CTRL_KEY('q'):
@@ -994,7 +992,6 @@ void processKeypress() {
                 if ( (c > 31 && c < 127) || c == '\t') {
                     windowInsertChar(c, &G.E, true);
                     G.B.regenerateStack = true; 
-                    //coordStackPush(G.E.cx, G.E.cy, &G.editorUndoStack);
                 }
             }
             break;
@@ -1739,7 +1736,9 @@ void processBrainFuck(brainFuckModule* this) {
         case '[':
             if(*dataPtr){
                 //add bracket loc to stack
-                coordStackPush(this->instX, this->instY, &this->bracketStack);
+                if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
+                    brainfuckDie("Loop stack overflow.", &G.B);
+                }
                 instForward();
             }
             else{
@@ -1763,7 +1762,9 @@ void processBrainFuck(brainFuckModule* this) {
                     char curInst = G.E.row[this->instY].chars[this->instX];
 
                     if (curInst == '[') {
-                        coordStackPush(this->instX, this->instY, &stackForSkippping);
+                        if (!coordStackPush(this->instX, this->instY, &stackForSkippping)) {
+                            brainfuckDie("Loop stack full.", &G.B);
+                        }
                         instForward();
                     }
                     else if (curInst == ']') {
@@ -1845,7 +1846,9 @@ void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* thi
 
         char curInst = G.E.row[this->instY].chars[this->instX];
         if (curInst == '[') {
-            coordStackPush(this->instX, this->instY, &this->bracketStack);
+            if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
+                brainfuckDie("Loop stack full.", &G.B);
+            }
         }
         else if (curInst == ']') {
             coordStackPop(&this->bracketStack);

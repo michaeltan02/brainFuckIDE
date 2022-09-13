@@ -3,8 +3,14 @@
 void rowInsertChar(erow* this, int at, int c) {
     if (at < 0 || at > this->size) at = this->size; // validate at just in case
     char* temp = realloc(this->chars, this->size + 2); // 2 cuz the inserted char, and cuz size doesn't include null terminator
-    assert(temp); // die is better though
-    // if (temp == NULL) die("rowInsertChar");
+    if (temp == NULL) {
+        //die("rowInsertChar");
+        write(STDOUT_FILENO, "\x1b[2J", 4);
+        write(STDOUT_FILENO, "\x1b[H", 3);
+        perror("rowInsertChar");
+        write(STDOUT_FILENO, "\r", 1);
+        exit(1);
+    }
     this->chars = temp;
 
     memmove(&this->chars[at + 1], &this->chars[at], this->size - at + 1); // +1 for null terminator
