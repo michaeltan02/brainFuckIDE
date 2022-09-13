@@ -106,7 +106,7 @@ typedef struct window {
     int numCells;
     int windowRows;
     int windowCols;
-    int startRowOrCell, startCol;
+    int startRow, startCol;
     erow* row; //dynamic array
     int dirty;
 } window;
@@ -723,10 +723,10 @@ void processKeypress() {
             {
                 //move to top/bottom of page, then scroll an entire page
                 if (c == PAGE_UP) {
-                    G.E.cy = G.E.startRowOrCell;
+                    G.E.cy = G.E.startRow;
                 }
                 else if (c == PAGE_DOWN) {
-                    G.E.cy = G.E.startRowOrCell + G.E.windowRows - 1;
+                    G.E.cy = G.E.startRow + G.E.windowRows - 1;
                     if (G.E.cy > G.E.numRows) G.E.cy = G.E.numRows;
                 }
 
@@ -1123,11 +1123,11 @@ void windowScroll(window* this) {
     }
 
     //now is actual scrolling
-    if (this->cy < this->startRowOrCell) {
-        this->startRowOrCell = this->cy;
+    if (this->cy < this->startRow) {
+        this->startRow = this->cy;
     }
-    if (this->cy >= this->startRowOrCell + this->windowRows) {
-        this->startRowOrCell = this->cy - this->windowRows + 1;
+    if (this->cy >= this->startRow + this->windowRows) {
+        this->startRow = this->cy - this->windowRows + 1;
     }
 
     if (this->rx < this->startCol) {
@@ -1141,11 +1141,11 @@ void windowScroll(window* this) {
 void dataArrayScroll(window* this) {
     if (this-> type != DATA_ARRAY) return;
 
-    if (this->cy < this->startRowOrCell) {
-        this->startRowOrCell = this->cy;
+    if (this->cy < this->startRow) {
+        this->startRow = this->cy;
     }
-    if (this->cy >= this->startRowOrCell + this->windowRows) {
-        this->startRowOrCell = this->cy - this->windowRows + 1;
+    if (this->cy >= this->startRow + this->windowRows) {
+        this->startRow = this->cy - this->windowRows + 1;
     }
 
     G.dataArray.rx = G.dataArray.cx * 4 + 1; 
@@ -1173,7 +1173,7 @@ void globalRefreshScreen(){
     drawMessageBar(&ab);
     
     int activeWindowX = G.activeWindowPtr->rx - G.activeWindowPtr->startCol + 1 + G.activeWindowPtr->startPosX;
-    int activeWindowY = G.activeWindowPtr->cy - G.activeWindowPtr->startRowOrCell + 1 + G.activeWindowPtr->startPosY;
+    int activeWindowY = G.activeWindowPtr->cy - G.activeWindowPtr->startRow + 1 + G.activeWindowPtr->startPosY;
     setGlobalCursor(&ab, activeWindowX, activeWindowY);
     
     abAppend(&ab, "\x1b[?25h", 6);
@@ -1185,7 +1185,7 @@ void globalRefreshScreen(){
 void drawEditor(struct abuf * ab) {
     abAppend(ab, "\x1b[H", 3);  //moves cursor position to 0,0
     for (int y = 0; y < G.E.windowRows; y++){
-        int fileRow = G.E.startRowOrCell + y;
+        int fileRow = G.E.startRow + y;
         if (fileRow >= G.E.numRows) {
             if (G.E.numRows == 0 && y == G.E.windowRows / 3) {  //welcome message
                 char welcome[80];
@@ -1274,7 +1274,7 @@ void drawDataArray(struct abuf * ab){
     char buf[10];
     
     int cellToHighlight = G.B.arrayIndex;
-    int index = G.dataArray.startRowOrCell * G.dataArray.numCells;
+    int index = G.dataArray.startRow * G.dataArray.numCells;
 
     for(int i = 0; i < G.dataArray.windowRows; i++) {
         for (int j = 0; j < G.dataArray.numCells; j++) {
@@ -1306,7 +1306,7 @@ void drawDataArray(struct abuf * ab){
 void drawOutput(struct abuf * ab) {
     setGlobalCursor(ab, G.O.startPosX, G.O.startPosY);
     for (int y = -1; y < G.O.windowRows; y++){
-        int outRow = G.O.startRowOrCell + y;
+        int outRow = G.O.startRow + y;
         if (y == -1) { // "Output:" in bold (use -1 so we don't mess up outRow)
             abAppend(ab, "\x1b[1;37m", 7);
             abAppend(ab, "Output:\x1b[0m", 11);
@@ -1461,7 +1461,7 @@ void windowReset(windowType givenType, window* this) {
     this->cx = 0;
     this->cy = 0;
     this->rx = 0;
-    this->startRowOrCell = 0;
+    this->startRow = 0;
     this->startCol = 0;
     this->numRows = 0;
     this->dirty = 0;
@@ -1811,8 +1811,14 @@ void processBrainFuck(brainFuckModule* this) {
             instForward();
             break;
     }
-    //only do this if need to scroll screen (horizontally and vertically)
-    G.E.cy = this->instY;
+
+    // scroll screen if needed
+    if (this->instY >= G.E.startRow + G.E.windowRows || this->instY < G.E.startRow) {
+        G.E.cy = this->instY;
+    }
+    if (this->instX >= G.E.startCol + G.E.windowCols || this->instX < G.E.startCol) {
+        G.E.cx = this->instX;
+    }
     G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells;
 
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
