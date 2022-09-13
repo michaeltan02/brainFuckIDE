@@ -179,9 +179,12 @@ struct globalEnvironment {
     topMode currentMode;
 
     undoStack editorUndoStack;
+
+    bool highlightBF;
 };
 
 void globalInit(void);
+void selectSyntaxHighlight();
 
 // terminal
 void enableRawMode(void);
@@ -575,6 +578,7 @@ void editorUndo() {
 void editorOpen(char* fileName) {
     free(G.fileName);
     G.fileName = strdup(fileName);
+    selectSyntaxHighlight();
 
     FILE *fp = fopen(fileName, "r");
     if (!fp) die("fopen");
@@ -620,6 +624,7 @@ void editorSave() {
             setStatusMessage("Save aborted");
             return;
         }
+        selectSyntaxHighlight();
     }
 
     int len;
@@ -686,6 +691,7 @@ void processKeypress() {
                 if (G.fileName == NULL) {
                     G.fileName = backUpName;
                 }
+                selectSyntaxHighlight();
             }
             break;
         case CTRL_KEY('p'): // need change for pause
@@ -1209,46 +1215,50 @@ void drawEditor(struct abuf * ab) {
             int len = G.E.row[fileRow].rsize - G.E.startCol;
             if (len < 0) len = 0; //just display nothing
             if (len > G.E.windowCols) len = G.E.windowCols;
-            //abAppend(ab, &E.row[fileRow].render[E.colOff], len);
-            //basic syntax highlighting
-            char* lineToPrint = &G.E.row[fileRow].render[G.E.startCol];
-            int rxOfInst = windowCxToRx(&G.E.row[fileRow] , G.B.instX);
-            for (int j = 0; j < len; j++) {
-                switch(lineToPrint[j]){
-                    case '>':
-                    case '<':
-                        //cyan();
-                        abAppend(ab, "\x1b[36m", 5);
-                        break;
-                    case '+':
-                    case '-':
-                        //white();
-                        abAppend(ab, "\x1b[37m", 5);
-                        break;
-                    case '.':
-                    case ',':
-                        //purple();
-                        abAppend(ab, "\x1b[35m", 5);
-                        break;
-                    case '[':
-                    case ']':
-                        //yellow();
-                        abAppend(ab, "\x1b[33m", 5);
-                        break;
-                    case '?':
-                        //red();
-                        abAppend(ab, "\x1b[31m", 5);
-                        break;
-                    default:
-                        //blue();
-                        abAppend(ab, "\x1b[34m", 5);
-                        break;
+            if (!G.highlightBF) {
+                abAppend(ab, &G.E.row[fileRow].render[G.E.startCol], len);
+            }
+            else {
+                //basic syntax highlighting
+                char* lineToPrint = &G.E.row[fileRow].render[G.E.startCol];
+                int rxOfInst = windowCxToRx(&G.E.row[fileRow] , G.B.instX);
+                for (int j = 0; j < len; j++) {
+                    switch(lineToPrint[j]){
+                        case '>':
+                        case '<':
+                            //cyan();
+                            abAppend(ab, "\x1b[36m", 5);
+                            break;
+                        case '+':
+                        case '-':
+                            //white();
+                            abAppend(ab, "\x1b[37m", 5);
+                            break;
+                        case '.':
+                        case ',':
+                            //purple();
+                            abAppend(ab, "\x1b[35m", 5);
+                            break;
+                        case '[':
+                        case ']':
+                            //yellow();
+                            abAppend(ab, "\x1b[33m", 5);
+                            break;
+                        case '?':
+                            //red();
+                            abAppend(ab, "\x1b[31m", 5);
+                            break;
+                        default:
+                            //blue();
+                            abAppend(ab, "\x1b[34m", 5);
+                            break;
+                    }
+                    if (G.currentMode == DEBUG && fileRow == G.B.instY && rxOfInst == G.E.startCol + j) {
+                        abAppend(ab, "\x1b[7m", 4);
+                    }
+                    abAppend(ab, &lineToPrint[j], 1);
+                    abAppend(ab, "\x1b[0m", 4);
                 }
-                if (G.currentMode == DEBUG && fileRow == G.B.instY && rxOfInst == G.E.startCol + j) {
-                    abAppend(ab, "\x1b[7m", 4);
-                }
-                abAppend(ab, &lineToPrint[j], 1);
-                abAppend(ab, "\x1b[0m", 4);
             }
         }
 
@@ -1442,6 +1452,16 @@ void globalInit() {
     G.activeWindowPtr = &G.E;
 
     undoStackInit(&(G.editorUndoStack));
+
+    G.highlightBF = false;
+}
+
+void selectSyntaxHighlight() {
+    if (G.fileName == NULL) return;
+
+    if (strstr(G.fileName, ".bf")) {
+        G.highlightBF = true;
+    }
 }
 
 void abAppend(struct abuf * ab, const char * s, int len) {
