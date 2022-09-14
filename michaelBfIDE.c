@@ -1710,59 +1710,6 @@ void processBrainFuck(brainFuckModule* this) {
             break;
         case ',': 
             {
-                /*
-                char* userInput = NULL;
-                bool validInput = false;
-                while (!validInput) {
-                    userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only, ESC to cancel): %s", 3); 
-                    if(userInput) {
-                        if (userInput[0] > 31 && userInput[0] < 127) { //the returned buffer should be valid
-                            if (userInput[0] >= 48 && userInput[0] <= 57) {
-                                // First char is number
-                                int potentialNum = atoi(userInput);
-                                if(potentialNum == 0 && (userInput[0] != '0')) {
-                                    //shouldn't ever happen
-                                    validInput = false;
-                                    free(userInput);
-                                    userInput = NULL;
-                                    setStatusMessage("Invalid input");
-                                    globalRefreshScreen();
-                                    readKey();
-                                }
-                                else if (potentialNum > 255) {
-                                    validInput = false;
-                                    free(userInput);
-                                    userInput = NULL;
-                                    setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
-                                    globalRefreshScreen();
-                                    readKey();
-                                }
-                                else {
-                                    validInput = true;
-                                    *dataPtr = potentialNum;
-                                }
-                            }
-                            else {
-                                *dataPtr = userInput[0];
-                                validInput = true;
-                            }
-                        }
-                        else {
-                            //Something went wrong. promptInput shouldn't give something like this
-                            validInput = false;
-                            free(userInput);
-                            userInput = NULL;
-                        }
-                    }
-                    else {
-                        //user canceled. So just go back to editor and pause without doing anything
-                        this->debugMode = PAUSED;
-                        return;
-                    }
-                }
-                free(userInput);
-                userInput = NULL;
-                */
                 if (brainfuckGetByte(dataPtr, this)) {
                     instForward();
                 }
