@@ -722,6 +722,24 @@ void processKeypress() {
                 }
             }
             break;
+        case CTRL_KEY('j'):
+            // snap cursor to where they shoudl be
+            if (G.currentMode != EDIT) {
+                G.E.cx = G.B.instX;
+                G.E.cy = G.B.instY;
+
+                if (G.B.arrayIndex == 0) {
+                    G.dataArray.cy = 0;
+                    G.dataArray.cx = 0;
+                }
+                else if (G.B.arrayIndex && G.dataArray.numCells) {
+                    G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells;
+                    G.dataArray.cx = G.B.arrayIndex % G.dataArray.numCells;
+                }
+
+                setStatusMessage("Snapped cursors to current inst/cell");
+            }
+            break;
         case CTRL_KEY('w'):
             //swiching active window
             if (G.currentMode != EDIT) {
