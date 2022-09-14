@@ -1524,6 +1524,11 @@ void abAppend(struct abuf * ab, const char * s, int len) {
 
 void windowReset(windowType givenType, window* this) {
     this->type = givenType;
+    if (this->type != DATA_ARRAY) {
+        for (int i = 0; i < this->numRows; i++) {
+            rowFree(&this->row[i]);
+        }
+    }
     free(this->row);
     this->row = NULL;
 
