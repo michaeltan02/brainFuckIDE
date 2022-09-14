@@ -95,6 +95,7 @@ void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
 void brainfuckDie(char* error, brainFuckModule* this);
 void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this);
+bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this);
 
 /*** Window ***/
 typedef struct window {
@@ -117,6 +118,7 @@ void windowReset(windowType givenType, window* this);
 void windowInsertRow(int at, char*s, size_t len, window* this);
 void windowDelRow(int at, window* this);
 int windowCxToRx(erow* row, int cx);
+int dataArrayCxToIndex();
 
 // window operation
 void windowInsertChar(int c, window* this, bool saveUndo);
@@ -426,6 +428,10 @@ int windowCxToRx(erow* row, int cx) {
         rx++;
     }
     return rx;
+}
+
+int dataArrayCxToIndex() {
+    return (G.dataArray.cy * G.dataArray.numCells + G.dataArray.cx);
 }
 
 void windowInsertChar(int c, window* this, bool saveUndo) {
@@ -1399,7 +1405,8 @@ void drawStatusBar(struct abuf * ab) {
                 mode = G.B.errorMsg ? "Brainfucked" : "Finished";
                 break;
         }
-        rightLen = snprintf(rightStatus, sizeof(rightStatus), "Line %d/%d | Debugger Mode: %s | Cell %d", G.E.cy + 1 , G.E.numRows, mode, G.B.arrayIndex);
+        rightLen = snprintf(rightStatus, sizeof(rightStatus), 
+                    "Line %d/%d | Debugger Mode: %s | Cell %d", G.E.cy + 1 , G.E.numRows, mode, dataArrayCxToIndex());
     }
     //fill rest of screen with spaces for the white bar effect
     while (len < G.fullScreenCols) {
@@ -1703,6 +1710,7 @@ void processBrainFuck(brainFuckModule* this) {
             break;
         case ',': 
             {
+                /*
                 char* userInput = NULL;
                 bool validInput = false;
                 while (!validInput) {
@@ -1754,7 +1762,10 @@ void processBrainFuck(brainFuckModule* this) {
                 }
                 free(userInput);
                 userInput = NULL;
-                instForward();
+                */
+                if (brainfuckGetByte(dataPtr, this)) {
+                    instForward();
+                }
             }
             break;
         case '[':
@@ -1899,4 +1910,51 @@ void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* thi
         instForward();
     }
     this->regenerateStack = false;
+}
+
+bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this) {
+    char * userInput = NULL;
+    bool validInput = false;
+    while (!validInput) {
+        userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only, ESC to cancel): %s", 3); 
+        if(userInput) {
+            if (userInput[0] >= 48 && userInput[0] <= 57) {
+                // First char is number
+                int potentialNum = atoi(userInput);
+                if(potentialNum == 0 && (userInput[0] != '0')) {
+                    //shouldn't ever happen
+                    validInput = false;
+                    free(userInput);
+                    userInput = NULL;
+                    setStatusMessage("Invalid input");
+                    globalRefreshScreen();
+                    readKey();
+                }
+                else if (potentialNum > 255) {
+                    validInput = false;
+                    free(userInput);
+                    userInput = NULL;
+                    setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
+                    globalRefreshScreen();
+                    readKey();
+                }
+                else {
+                    validInput = true;
+                    *dataPtr = potentialNum;
+                }
+            }
+            else {
+                *dataPtr = userInput[0];
+                validInput = true;
+            }
+        }
+        else {
+            //user canceled. So just go back to editor and pause without doing anything
+            this->debugMode = PAUSED;
+            return false;
+        }
+    }
+    free(userInput);
+    userInput = NULL;
+    return true;
 }
