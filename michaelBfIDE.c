@@ -700,7 +700,7 @@ void processKeypress() {
                 selectSyntaxHighlight();
             }
             break;
-        case CTRL_KEY('p'): // need change for pause
+        case CTRL_KEY('p'):
             //manually set brainfuck inst ptr to cursor location
             if (G.currentMode == DEBUG && G.B.debugMode != EXECUTION_ENDED) {
                 G.B.instX = G.E.cx;
@@ -709,18 +709,34 @@ void processKeypress() {
                 regenerateBracketStack(G.B.instX, G.B.instY, &G.B);
             }
             break;
+        case CTRL_KEY('c'):
+            {
+                // set data array cell of cursor
+                if (G.activeWindow == DATA_ARRAY) {
+                    int cursorIndex = dataArrayCxToIndex();
+                    if (cursorIndex < G.B.arraySize) {
+                        if (brainfuckGetByte(&G.B.dataArray[cursorIndex], &G.B)) {
+                            setStatusMessage("Set cell %d to %d", cursorIndex, G.B.dataArray[cursorIndex]);
+                        }
+                    }
+                }
+            }
+            break;
         case CTRL_KEY('w'):
             //swiching active window
             if (G.currentMode != EDIT) {
                 switch (G.activeWindow) {
                     case TEXT_EDITOR:
                         activeWindowSwicher(OUTPUT);
+                        setStatusMessage("Switched to output window");
                         break;
                     case OUTPUT:
                         activeWindowSwicher(DATA_ARRAY);
+                        setStatusMessage("Switched to data array window");
                         break;
                     case DATA_ARRAY:
                         activeWindowSwicher(TEXT_EDITOR);
+                        setStatusMessage("Switched to editor window");
                         break;
                 }
             }
@@ -1229,16 +1245,14 @@ void drawEditor(struct abuf * ab) {
         }
         else {
             int len = G.E.row[fileRow].rsize - G.E.startCol;
-            if (len < 0) len = 0; //just display nothing
+            if (len < 0) len = 0; // just display nothing
             if (len > G.E.windowCols) len = G.E.windowCols;
-            if (!G.highlightBF) {
-                abAppend(ab, &G.E.row[fileRow].render[G.E.startCol], len);
-            }
-            else {
-                //basic syntax highlighting
-                char* lineToPrint = &G.E.row[fileRow].render[G.E.startCol];
-                int rxOfInst = windowCxToRx(&G.E.row[fileRow] , G.B.instX);
-                for (int j = 0; j < len; j++) {
+
+            // basic syntax highlighting
+            char* lineToPrint = &G.E.row[fileRow].render[G.E.startCol];
+            int rxOfInst = windowCxToRx(&G.E.row[fileRow] , G.B.instX);
+            for (int j = 0; j < len; j++) {
+                if (G.highlightBF) {
                     switch(lineToPrint[j]){
                         case '>':
                         case '<':
@@ -1269,12 +1283,12 @@ void drawEditor(struct abuf * ab) {
                             abAppend(ab, "\x1b[34m", 5);
                             break;
                     }
-                    if (G.currentMode == DEBUG && fileRow == G.B.instY && rxOfInst == G.E.startCol + j) {
-                        abAppend(ab, "\x1b[7m", 4);
-                    }
-                    abAppend(ab, &lineToPrint[j], 1);
-                    abAppend(ab, "\x1b[0m", 4);
                 }
+                if (G.currentMode == DEBUG && fileRow == G.B.instY && rxOfInst == G.E.startCol + j) {
+                    abAppend(ab, "\x1b[7m", 4);
+                }
+                abAppend(ab, &lineToPrint[j], 1);
+                abAppend(ab, "\x1b[0m", 4);
             }
         }
 
@@ -1863,7 +1877,7 @@ bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this) {
     char * userInput = NULL;
     bool validInput = false;
     while (!validInput) {
-        userInput = promptInput("Enter value for selected cell (unsigned 8-bit alphanumeric only, ESC to cancel): %s", 3); 
+        userInput = promptInput("Enter value for selected cell (8-bit alphanumeric only, ESC to cancel): %s", 3); 
         if(userInput) {
             if (userInput[0] >= 48 && userInput[0] <= 57) {
                 // First char is number
@@ -1901,6 +1915,7 @@ bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this) {
             return false;
         }
     }
+
     free(userInput);
     userInput = NULL;
     return true;
