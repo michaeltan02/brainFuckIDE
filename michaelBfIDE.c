@@ -729,24 +729,29 @@ void processKeypress() {
             {
                 //move to top/bottom of page, then scroll an entire page
                 if (c == PAGE_UP) {
-                    G.E.cy = G.E.startRow;
+                    G.activeWindowPtr->cy = G.activeWindowPtr->startRow;
                 }
                 else if (c == PAGE_DOWN) {
-                    G.E.cy = G.E.startRow + G.E.windowRows - 1;
-                    if (G.E.cy > G.E.numRows) G.E.cy = G.E.numRows;
+                    G.activeWindowPtr->cy = G.activeWindowPtr->startRow + G.activeWindowPtr->windowRows - 1;
+                    if (G.activeWindowPtr->cy > G.activeWindowPtr->numRows) G.activeWindowPtr->cy = G.activeWindowPtr->numRows;
                 }
 
-                for (int times = G.E.windowRows - 1; times > 0; times--) {
-                    windowMoveCursor( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, &G.E);
+                for (int times = G.activeWindowPtr->windowRows - 1; times > 0; times--) {
+                    windowMoveCursor( (c == PAGE_UP) ? ARROW_UP : ARROW_DOWN, G.activeWindowPtr);
                 }
             }
             break;
         case HOME_KEY:
-            G.E.cx = 0;
+            G.activeWindowPtr->cx = 0;
             break;
         case END_KEY:
-            if (G.E.cy < G.E.numRows) {
-                G.E.cx = G.E.row[G.E.cy].size;
+            if (G.activeWindow == TEXT_EDITOR || G.activeWindow == OUTPUT) {
+                if (G.activeWindowPtr->cy < G.activeWindowPtr->numRows) {
+                    G.activeWindowPtr->cx = G.activeWindowPtr->row[G.activeWindowPtr->cy].size;
+                }
+            }
+            else if (G.activeWindow == DATA_ARRAY) {
+                G.activeWindowPtr->cx = G.activeWindowPtr->numCells - 1;
             }
             break;
         case BACKSPACE:
@@ -762,28 +767,23 @@ void processKeypress() {
         case ARROW_LEFT:
         case ARROW_DOWN:
         case ARROW_RIGHT:
-            if (G.activeWindow == TEXT_EDITOR || G.activeWindow == OUTPUT) {
-                windowMoveCursor(c, G.activeWindowPtr);
-            }
-            else if (G.activeWindow == DATA_ARRAY) {
-                dataArrayMoveCursor(c, G.activeWindowPtr);
-            }
+            windowMoveCursor(c, G.activeWindowPtr);
             break;
         case CTRL_UP:
         case CTRL_DOWN:
             break;
         case CTRL_LEFT:
-            while (1) {
-                windowMoveCursor(ARROW_LEFT, &G.E);
-                if (G.E.cy < G.E.numRows) {
-                    char curChar = G.E.row[G.E.cy].chars[G.E.cx - 1];  //there are so many edge cases and stuff to check, like "", &&
+            while (G.activeWindow == TEXT_EDITOR || G.activeWindow == OUTPUT) {
+                windowMoveCursor(ARROW_LEFT, G.activeWindowPtr);
+                if (G.activeWindowPtr->cy < G.activeWindowPtr->numRows) {
+                    char curChar = G.activeWindowPtr->row[G.activeWindowPtr->cy].chars[G.activeWindowPtr->cx - 1];  //there are so many edge cases and stuff to check, like "", &&
                     if (curChar == ' ' || curChar == '(' ||
                         curChar == ')' || curChar == '[' ||
                         curChar == ']' || curChar == '.' ||
                         curChar == '#' || curChar == '"' ||
                         curChar == '\t' ||
-                        G.E.row[G.E.cy].chars[G.E.cx] == '"'||
-                        G.E.cx == 0) break;
+                        G.activeWindowPtr->row[G.activeWindowPtr->cy].chars[G.activeWindowPtr->cx] == '"'||
+                        G.activeWindowPtr->cx == 0) break;
                 }
                 else {
                     break;
@@ -791,19 +791,19 @@ void processKeypress() {
             }
             break;
         case CTRL_RIGHT:
-            while (1){
-                windowMoveCursor(ARROW_RIGHT, &G.E);
-                if (G.E.cy < G.E.numRows) {
-                    char curChar = G.E.row[G.E.cy].chars[G.E.cx];
+            while (G.activeWindow == TEXT_EDITOR || G.activeWindow == OUTPUT){
+                windowMoveCursor(ARROW_RIGHT, G.activeWindowPtr);
+                if (G.activeWindowPtr->cy < G.activeWindowPtr->numRows) {
+                    char curChar = G.activeWindowPtr->row[G.activeWindowPtr->cy].chars[G.activeWindowPtr->cx];
                     if (curChar == ' ' || curChar == '(' ||
                         curChar == ')' || curChar == '[' ||
                         curChar == ']' || curChar == '.' ||
                         curChar == '&' || curChar == ',' ||
                         curChar == ':' || curChar == '"' ||
                         curChar == '\t' ||
-                        (G.E.row[G.E.cy].chars[G.E.cx-1] == '/' && G.E.row[G.E.cy].chars[G.E.cx-2] == '/')||
-                        G.E.row[G.E.cy].chars[G.E.cx-1] == '"'||
-                        G.E.cx == G.E.row[G.E.cy].size ) break;
+                        (G.activeWindowPtr->row[G.activeWindowPtr->cy].chars[G.activeWindowPtr->cx-1] == '/' && G.activeWindowPtr->row[G.activeWindowPtr->cy].chars[G.activeWindowPtr->cx-2] == '/')||
+                        G.activeWindowPtr->row[G.activeWindowPtr->cy].chars[G.activeWindowPtr->cx-1] == '"'||
+                        G.activeWindowPtr->cx == G.activeWindowPtr->row[G.activeWindowPtr->cy].size ) break;
                 }
                 else {
                     break;
@@ -1002,6 +1002,11 @@ void processKeypress() {
 }
 
 void windowMoveCursor(int key, window* this){
+    if (this->type == DATA_ARRAY) {
+        dataArrayMoveCursor(key, this);
+        return;
+    }
+
     erow* row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
 
     switch (key) {
@@ -1122,6 +1127,11 @@ char* promptInput(char * prompt, int inputSizeLimit){
 }
 
 void windowScroll(window* this) {
+    if (this->type == DATA_ARRAY) {
+        dataArrayScroll(this);
+        return;
+    }
+
     //first process tabs. Each time E.cx get change, we will get to here, and then calculate the correct E.rx to show
     this->rx = 0;
     if (this->cy < this->numRows) {
@@ -1161,7 +1171,7 @@ void dataArrayScroll(window* this) {
 void globalRefreshScreen(){
     windowScroll(&G.E);
     if (G.currentMode != TEXT_EDITOR) { 
-        dataArrayScroll(&G.dataArray);
+        windowScroll(&G.dataArray);
         windowScroll(&G.O);
     }
 
