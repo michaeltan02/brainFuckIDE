@@ -591,7 +591,7 @@ void editorFind() {
     int saved_startCol = G.E.startCol;
     int saved_startRow = G.E.startRow;
 
-    char * querry = promptInput("Search: %s (ESC to cancel)", -1, editorFindCallback);
+    char * querry = promptInput("Search: %s (Use ESC/Arrows/Enter)", -1, editorFindCallback);
     if (querry) {
         free(querry);
     }
@@ -604,13 +604,42 @@ void editorFind() {
 }
 
 void editorFindCallback(char * querry, int key) {
-    if (key == '\x1b' || key == '\r' || key == '\n') return;
+    static int last_match = -1; // for directional search
+    static int direction = 1;
 
+    if (key == '\x1b' || key == '\r' || key == '\n') {
+        last_match = -1;
+        direction = 1;
+        return;
+    }
+    else if (key == ARROW_RIGHT || key == ARROW_DOWN) {
+        direction = 1;
+    } 
+    else if (key == ARROW_LEFT || key == ARROW_UP) {
+        direction = -1;
+    } 
+    else {
+        last_match = -1;
+        direction = 1;
+    }
+
+    if (last_match == -1) direction = 1;
+    int current = last_match;
+    
     for (int i = 0; i < G.E.numRows; i++) {
-        erow * row = &G.E.row[i];
+        current += direction;
+        if (current <= -1) {
+            current = G.E.numRows - 1;
+        }
+        else if (current >= G.E.numRows) {
+            current = 0;
+        }
+
+        erow * row = &G.E.row[current];
         char * match = strstr(row->chars, querry);
         if (match) {
-            G.E.cy = i;
+            last_match = current;
+            G.E.cy = current;
             G.E.cx = match - row->chars;
             G.E.startRow = G.E.numRows; // this way windowScroll will put matched string on top of window
             if (G.E.cx >= G.E.startCol + G.E.windowCols) {
