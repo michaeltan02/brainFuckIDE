@@ -114,7 +114,7 @@ typedef struct window {
 
 void windowReset(windowType givenType, window* this);
 
-// row operation
+// row-based operation
 void windowInsertRow(int at, char*s, size_t len, window* this);
 void windowDelRow(int at, window* this);
 int windowCxToRx(erow* row, int cx);
@@ -125,11 +125,15 @@ void windowInsertChar(int c, window* this, bool saveUndo);
 void windowInsertNewLine(window* this, bool saveUndo);
 void windowDelChar(window* this, bool saveUndo);
 
-void editorUndo();
 void windowScroll(window* this);
 void dataArrayScroll(window* this);
 void windowMoveCursor(int key, window* this);
 void dataArrayMoveCursor(int key, window* this); // basically virtual func of above
+
+void editorUndo();
+void editorFind();
+void editorFindCallback(char * querry, int key);
+char * stringToLowerCase(char * source, int length); // need to free returned buffer
 
 // file i/o 
 void editorOpen(char* fileName);
@@ -138,7 +142,8 @@ void editorSave();
 
 /*** Global Input & Output ***/
 void processKeypress(void);
-char* promptInput(char* prompt, int inputSizeLimit); //our own scanf (-1 for no limit), need to free the returned buffer
+char* promptInput(char* prompt, int inputSizeLimit , void (*callback)(char *, int)); 
+// Need to free the returned buffer. -1 for no limit. Callback func get called after each key stroke, gets current input and new key
 
 typedef struct abuf {
     char* b;
@@ -580,6 +585,54 @@ void editorUndo() {
     }
 }
 
+void editorFind() {
+    int saved_cx = G.E.cx;
+    int saved_cy = G.E.cy;
+    int saved_startCol = G.E.startCol;
+    int saved_startRow = G.E.startRow;
+
+    char * querry = promptInput("Search: %s (ESC to cancel)", -1, editorFindCallback);
+    if (querry) {
+        free(querry);
+    }
+    else { // canceled search
+        G.E.cx = saved_cx;
+        G.E.cy = saved_cy;
+        G.E.startCol = saved_startCol;
+        G.E.startRow = saved_startRow;
+    }
+}
+
+void editorFindCallback(char * querry, int key) {
+    if (key == '\x1b' || key == '\r' || key == '\n') return;
+
+    for (int i = 0; i < G.E.numRows; i++) {
+        erow * row = &G.E.row[i];
+        char * match = strstr(row->chars, querry);
+        if (match) {
+            G.E.cy = i;
+            G.E.cx = match - row->chars;
+            G.E.startRow = G.E.numRows; // this way windowScroll will put matched string on top of window
+            if (G.E.cx >= G.E.startCol + G.E.windowCols) {
+                G.E.startCol = G.E.row[i].size;
+            }
+            break;
+        }
+    }
+
+}
+
+char * stringToLowerCase(char * source, int length) {
+    char * lowerCaseVer = malloc(length + 1);
+    if (lowerCaseVer) {
+        // WIP
+    }
+    else {
+        die("stringToLowerCase");
+        return NULL;
+    }
+}
+
 //file i/o
 void editorOpen(char* fileName) {
     free(G.fileName);
@@ -625,7 +678,7 @@ char* windowRowToString(int* bufLen, window* this) {
 
 void editorSave() {
     if (G.fileName == NULL) {
-        G.fileName = promptInput("Save as (ESC to cancel): %s", 255);
+        G.fileName = promptInput("Save as (ESC to cancel): %s", 255, NULL);
         if (G.fileName == NULL) {
             setStatusMessage("Save aborted");
             return;
@@ -762,6 +815,11 @@ void processKeypress() {
         case CTRL_KEY('z'):
             if (G.activeWindow == TEXT_EDITOR) {
                 editorUndo();
+            }
+            break;
+        case CTRL_KEY('e'):
+            if (G.activeWindow == TEXT_EDITOR) {
+                editorFind();
             }
             break;
         case PAGE_UP:
@@ -1118,7 +1176,7 @@ void dataArrayMoveCursor(int key, window* this){ //this of this as virtual func 
     }
 }
 
-char* promptInput(char * prompt, int inputSizeLimit){
+char* promptInput(char * prompt, int inputSizeLimit , void (*callback)(char *, int)){
     size_t bufSize = 128;
     char * buf = malloc(bufSize);   //our dynamic input buffer
 
@@ -1138,6 +1196,7 @@ char* promptInput(char * prompt, int inputSizeLimit){
         }
         else if (c == '\x1b') {  //pressed esc
             setStatusMessage("");
+            if (callback) callback(buf, c);
             free(buf);
             return NULL;
         }
@@ -1150,6 +1209,7 @@ char* promptInput(char * prompt, int inputSizeLimit){
                     readKey();
                 }
                 else {
+                    if (callback) callback(buf, c);
                     return buf;
                 }
             }
@@ -1163,6 +1223,7 @@ char* promptInput(char * prompt, int inputSizeLimit){
             bufLen++;
             buf[bufLen] = '\0';
         }
+        if (callback) callback(buf, c);
     }
 }
 
@@ -1269,7 +1330,7 @@ void drawEditor(struct abuf * ab) {
             // basic syntax highlighting
             char* lineToPrint = &G.E.row[fileRow].render[G.E.startCol];
             int rxOfInst = windowCxToRx(&G.E.row[fileRow] , G.B.instX);
-            for (int j = 0; j < len; j++) {
+            for (int j = 0; j < len; j++) { // on window, this doesn't print last letter in the row for snme reason
                 if (G.highlightBF) {
                     switch(lineToPrint[j]){
                         case '>':
@@ -1900,7 +1961,7 @@ bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this) {
     char * userInput = NULL;
     bool validInput = false;
     while (!validInput) {
-        userInput = promptInput("Enter value for selected cell (8-bit alphanumeric only, ESC to cancel): %s", 3); 
+        userInput = promptInput("Enter value for selected cell (8-bit alphanumeric only, ESC to cancel): %s", 3, NULL); 
         if(userInput) {
             if (userInput[0] >= 48 && userInput[0] <= 57) {
                 // First char is number
