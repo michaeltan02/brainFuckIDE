@@ -50,7 +50,8 @@ enum editorKey {
     F8_FUNCTION_KEY,
     F9_FUNCTION_KEY,
     F10_FUNCTION_KEY,
-    ALT_S
+    ALT_S,
+    ALT_F
 };
 
 typedef enum windowType {
@@ -133,7 +134,7 @@ void dataArrayMoveCursor(int key, window* this); // basically virtual func of ab
 void editorUndo();
 void editorFind();
 void editorFindCallback(char * querry, int key);
-char * stringToLowerCase(char * source, int length); // need to free returned buffer
+char * stringToLowerCase(char * source); // need to free returned buffer
 
 // file i/o 
 void editorOpen(char* fileName);
@@ -188,6 +189,7 @@ struct globalEnvironment {
     undoStack editorUndoStack;
 
     bool highlightBF;
+    bool caseMatchSearch;
 };
 
 void globalInit(void);
@@ -283,7 +285,13 @@ int readKey(void) {
     if (c == '\x1b') {
         char seq[5];
         if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-        if (seq[0] == 's') return ALT_S;
+        
+        switch(seq[0]) {
+            case 's': return ALT_S;
+            case 'f': return ALT_F;
+        }
+        // if (seq[0] == 's') return ALT_S;
+
         if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
 
         if (seq[0] == '[') {
@@ -595,7 +603,7 @@ void editorFind() {
     if (querry) {
         free(querry);
     }
-    else { // canceled search
+    else if (CANCEL_SEARCH_RESTORE_CURSOR) { // canceled search
         G.E.cx = saved_cx;
         G.E.cy = saved_cy;
         G.E.startCol = saved_startCol;
@@ -617,7 +625,7 @@ void editorFindCallback(char * querry, int key) {
     } 
     else if (key == ARROW_LEFT || key == ARROW_UP) {
         direction = -1;
-    } 
+    }
     else {
         last_match = -1;
         direction = 1;
@@ -626,39 +634,62 @@ void editorFindCallback(char * querry, int key) {
     if (last_match == -1) direction = 1;
     int current = last_match;
     
-    for (int i = 0; i < G.E.numRows; i++) {
-        current += direction;
-        if (current <= -1) {
-            current = G.E.numRows - 1;
-        }
-        else if (current >= G.E.numRows) {
-            current = 0;
-        }
-
-        erow * row = &G.E.row[current];
-        char * match = strstr(row->chars, querry);
-        if (match) {
-            last_match = current;
-            G.E.cy = current;
-            G.E.cx = match - row->chars;
-            G.E.startRow = G.E.numRows; // this way windowScroll will put matched string on top of window
-            if (G.E.cx >= G.E.startCol + G.E.windowCols) {
-                G.E.startCol = G.E.row[i].size;
+    if (querry && querry[0]) { // don't do this if nothing is typed
+        for (int i = 0; i < G.E.numRows; i++) {
+            current += direction;
+            if (current <= -1) {
+                current = G.E.numRows - 1;
             }
-            break;
+            else if (current >= G.E.numRows) {
+                current = 0;
+            }
+
+            erow * row = &G.E.row[current];
+
+            char * lowerQuerry = NULL;
+            char * lowerRow = NULL;
+            if (!G.caseMatchSearch) {
+                lowerQuerry = stringToLowerCase(querry);
+                lowerRow = stringToLowerCase(row->chars);
+            }
+
+            // char * match = strstr(row->chars, querry);
+            char * match = G.caseMatchSearch ? strstr(row->chars, querry) : strstr(lowerRow, lowerQuerry);
+
+            if (match) {
+                last_match = current;
+                G.E.cy = current;
+                G.E.cx = G.caseMatchSearch? match - row->chars : match - lowerRow;
+
+                G.E.startRow = G.E.numRows; // this way windowScroll will put matched string on top of window
+                if (G.E.cx >= G.E.startCol + G.E.windowCols) {
+                    G.E.startCol = G.E.row[i].size;
+                }
+
+                if (lowerQuerry) free(lowerQuerry);
+                if(lowerRow) free(lowerRow);
+                break;
+            }
+
+            if (lowerQuerry) free(lowerQuerry);
+            if(lowerRow) free(lowerRow);
         }
     }
 
 }
 
-char * stringToLowerCase(char * source, int length) {
+char * stringToLowerCase(char * source) {
+    int length = strlen(source);
     char * lowerCaseVer = malloc(length + 1);
     if (lowerCaseVer) {
-        // WIP
+        for (int i = 0; i < length; i++) {
+            lowerCaseVer[i] = tolower(source[i]);
+        }
+        lowerCaseVer[length] = '\0'; 
+        return lowerCaseVer;
     }
     else {
-        die("stringToLowerCase");
-        return NULL;
+        return source;
     }
 }
 
@@ -846,8 +877,17 @@ void processKeypress() {
                 editorUndo();
             }
             break;
-        case CTRL_KEY('e'):
+        case CTRL_KEY('f'):
+            // search
             if (G.activeWindow == TEXT_EDITOR) {
+                G.caseMatchSearch = false;
+                editorFind();
+            }
+            break;
+        case ALT_F:
+            // search
+            if (G.activeWindow == TEXT_EDITOR) {
+                G.caseMatchSearch = true;
                 editorFind();
             }
             break;
@@ -1252,7 +1292,8 @@ char* promptInput(char * prompt, int inputSizeLimit , void (*callback)(char *, i
             bufLen++;
             buf[bufLen] = '\0';
         }
-        if (callback) callback(buf, c);
+
+        if ( (c > 31) && callback ) callback(buf, c); // excluded control char
     }
 }
 
@@ -1593,6 +1634,7 @@ void globalInit() {
     undoStackInit(&(G.editorUndoStack));
 
     G.highlightBF = false;
+    G.caseMatchSearch = false;
 }
 
 void selectSyntaxHighlight() {
