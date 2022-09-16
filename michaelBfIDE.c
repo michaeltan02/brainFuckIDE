@@ -76,7 +76,7 @@ typedef enum debuggerMode {
 } debuggerMode;
 
 typedef struct brainFuckModule {
-    unsigned char dataArray[30000];
+    unsigned char * dataArray;
     int arraySize;
     int arrayIndex;
 
@@ -91,7 +91,7 @@ typedef struct brainFuckModule {
     char* errorMsg;
 } brainFuckModule;
 
-void resetBrainfuck(brainFuckModule* this);
+bool resetBrainfuck(brainFuckModule* this);
 void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
 void brainfuckDie(char* error, brainFuckModule* this);
@@ -139,6 +139,7 @@ char * stringToLowerCase(char * source); // need to free returned buffer
 // file i/o 
 void editorOpen(char* fileName);
 char* windowRowToString(int* bufLen, window* this);
+coordinate editorLoopCheck(window * this); // return error, or {-1, -1} if no error
 void editorSave();
 
 /*** Global Input & Output ***/
@@ -736,6 +737,40 @@ char* windowRowToString(int* bufLen, window* this) {
     return buf;
 }
 
+coordinate editorLoopCheck(window * this) { // this can maybe replace regenerate brainfuck stack? 
+    coordinate returnCoord = {-1, -1};
+    if (this->type != TEXT_EDITOR) return returnCoord;
+    coordStack errorCheckStack;
+    coordStackInit(&errorCheckStack);
+
+    for (int i = 0; i < this->numRows; i++) {
+        erow * row = &this->row[i];
+        for (int j = 0; j < row->size; j++) {
+            if (row->chars[j] == '[') {
+                if (!coordStackPush(j, i, &errorCheckStack)) {
+                    returnCoord.x = j;
+                    returnCoord.y = i;
+                    return returnCoord;
+                    setStatusMessage("Coordinate stack overflow");
+                }
+            }
+            else if (row->chars[j] == ']') {
+                if (coordStackIsEmpty(&errorCheckStack)) {
+                    returnCoord.x = j;
+                    returnCoord.y = i;
+                    return returnCoord;
+                    setStatusMessage("Cannot find opening bracket");
+                }
+                else {
+                    coordStackPop(&errorCheckStack);
+                }
+            }
+        }
+    }
+
+    return returnCoord;
+}
+
 void editorSave() {
     if (G.fileName == NULL) {
         G.fileName = promptInput("Save as (ESC to cancel): %s", 255, NULL);
@@ -986,9 +1021,13 @@ void processKeypress() {
             if (G.currentMode == EDIT) {
                 // enter debug mode
                 // maybe make a validityCheck function and put here
-                resetBrainfuck(&G.B);
-                modeSwitcher(DEBUG);
-                setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
+                if (resetBrainfuck(&G.B)) {
+                    modeSwitcher(DEBUG);
+                    setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
+                }
+                else {
+                    setStatusMessage("Cannot allocate starting memory for brainfuck");
+                }
             }
             else if (G.currentMode != EDIT) {
                 //continue
@@ -1569,7 +1608,8 @@ void drawStatusBar(struct abuf * ab) {
                 break;
         }
         rightLen = snprintf(rightStatus, sizeof(rightStatus), 
-                    "Line %d/%d | Debugger Mode: %s | Cell %d", G.E.cy + 1 , G.E.numRows, mode, dataArrayCxToIndex());
+                    "Line %d/%d | Debugger Mode: %s | Cell %d/%d", G.E.cy + 1 , G.E.numRows, mode, 
+                    G.activeWindow == DATA_ARRAY ? dataArrayCxToIndex() : G.B.arrayIndex, G.B.arraySize);
     }
     //fill rest of screen with spaces for the white bar effect
     while (len < G.fullScreenCols) {
@@ -1735,9 +1775,7 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
 }
 
 /*** Barinfuck logic functions ***/
-void resetBrainfuck(brainFuckModule* this){
-    this->arraySize = 30000;
-    memset(this->dataArray, 0, 30000);  //turn this into dynamic later
+bool resetBrainfuck(brainFuckModule* this){
     this->arrayIndex = 0;
     
     this->debugMode = PAUSED;
@@ -1751,6 +1789,16 @@ void resetBrainfuck(brainFuckModule* this){
     this->regenerateStack = false;
 
     this->errorMsg = NULL;
+
+    this->arraySize = BRAINFUCK_ARRAY_START_SIZE;
+    free(this->dataArray);
+    this->dataArray = malloc(BRAINFUCK_ARRAY_START_SIZE);
+    if (!this->dataArray) { // this really shouldn't happen
+        this->arraySize = 0;
+        return false;
+    }
+    memset(this->dataArray, 0, BRAINFUCK_ARRAY_START_SIZE);
+    return true;
 }
 
 // need an inst window ptr
@@ -1832,8 +1880,19 @@ void processBrainFuck(brainFuckModule* this) {
     switch(curInst){
         case '>':
             if (this->arrayIndex + 1 >= this->arraySize ) {
-                brainfuckDie("Attemped to go out of array's upper bound.", this);
-                //make this triger memory allocation later on
+                // allocate more memory
+                unsigned char * temp = realloc(this->dataArray, this->arraySize + BRAINFUCK_ARRAY_INCREASE_INCREMENT);
+                if (temp) {
+                    this->dataArray = temp;
+                    this->arraySize += BRAINFUCK_ARRAY_INCREASE_INCREMENT;
+                    memset(&this->dataArray[this->arrayIndex + 1], 0, BRAINFUCK_ARRAY_INCREASE_INCREMENT);
+                    this->debugMode = PAUSED;
+                    setStatusMessage("%d more bytes allocated for brainfuck", BRAINFUCK_ARRAY_INCREASE_INCREMENT);
+                }
+            }
+
+            if (this->arrayIndex + 1 >= this->arraySize ) {
+                brainfuckDie("Failed to allocate more memory for brainfuck.", this);
                 return;
             }
             else {
