@@ -2046,7 +2046,11 @@ void processBrainFuck(brainFuckModule* this) {
     if (this->instX >= G.E.startCol + G.E.windowCols || this->instX < G.E.startCol) {
         G.E.cx = this->instX;
     }
-    G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells; // maybe make this smarter like above?
+    
+    int curRowInArray = G.B.arrayIndex / G.dataArray.numCells;
+    if (curRowInArray >= G.dataArray.startRow + G.dataArray.windowRows) {
+        G.dataArray.cy = curRowInArray;
+    }
 
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
 
