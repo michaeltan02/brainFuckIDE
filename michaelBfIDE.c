@@ -91,7 +91,7 @@ typedef struct brainFuckModule {
     char* errorMsg;
 } brainFuckModule;
 
-bool resetBrainfuck(brainFuckModule* this);
+bool resetBrainfuck(bool initializing, brainFuckModule* this);
 void processBrainFuck(brainFuckModule* this);
 void instForward(); //igore comments
 void brainfuckDie(char* error, brainFuckModule* this);
@@ -215,7 +215,7 @@ struct globalEnvironment G;
 int main(int argc, char* argv[]) {
 	enableRawMode();
     globalInit();
-    //editorOpen("mandelbrot.bf"); //for testing in VScode
+    // editorOpen("nested_loop.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
     }
@@ -741,7 +741,8 @@ coordinate editorLoopCheck(window * this) { // this can maybe replace regenerate
     coordinate returnCoord = {-1, -1};
     if (this->type != TEXT_EDITOR) return returnCoord;
     coordStack errorCheckStack;
-    coordStackInit(&errorCheckStack);
+    // errorCheckStack.stackArray = NULL;
+    coordStackInit(true, &errorCheckStack);
 
     for (int i = 0; i < this->numRows; i++) {
         erow * row = &this->row[i];
@@ -1021,7 +1022,7 @@ void processKeypress() {
             if (G.currentMode == EDIT) {
                 // enter debug mode
                 // maybe make a validityCheck function and put here
-                if (resetBrainfuck(&G.B)) {
+                if (resetBrainfuck(false, &G.B)) {
                     modeSwitcher(DEBUG);
                     setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
                 }
@@ -1046,7 +1047,7 @@ void processKeypress() {
         case F6_FUNCTION_KEY:
             if (G.currentMode == EDIT) {
                 // enter execute mode
-                resetBrainfuck(&G.B);
+                resetBrainfuck(false, &G.B);
                 modeSwitcher(EXECUTE);
                 G.B.debugMode = CONTINUE;
                 globalRefreshScreen();
@@ -1093,7 +1094,7 @@ void processKeypress() {
             if (G.currentMode != EDIT) {
                 G.E.cx = 0;
                 G.E.cy = 0;
-                resetBrainfuck(&G.B);
+                resetBrainfuck(false, &G.B);
                 windowReset(OUTPUT, &G.O);
                 windowReset(DATA_ARRAY, &G.dataArray);
                 setStatusMessage("");
@@ -1105,7 +1106,7 @@ void processKeypress() {
             activeWindowSwicher(TEXT_EDITOR);
             if (G.currentMode != EDIT) {
                 modeSwitcher(EDIT);
-                resetBrainfuck(&G.B);
+                resetBrainfuck(false, &G.B);
                 windowReset(OUTPUT, &G.O);
                 windowReset(DATA_ARRAY, &G.dataArray);
                 setStatusMessage("");
@@ -1657,7 +1658,7 @@ void setGlobalCursor(struct abuf * ab, int x, int y) {
 
 //"member" functions
 void globalInit() {
-    resetBrainfuck(&G.B);
+    resetBrainfuck(true, &G.B);
     windowReset(OUTPUT, &G.O);
     windowReset(TEXT_EDITOR, &G.E);
     windowReset(DATA_ARRAY, &G.dataArray);
@@ -1775,7 +1776,7 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
 }
 
 /*** Barinfuck logic functions ***/
-bool resetBrainfuck(brainFuckModule* this){
+bool resetBrainfuck(bool initializing, brainFuckModule* this){
     this->arrayIndex = 0;
     
     this->debugMode = PAUSED;
@@ -1785,13 +1786,18 @@ bool resetBrainfuck(brainFuckModule* this){
     this->instX = 0;
     this->instY = 0;
 
-    coordStackInit(&(this->bracketStack));
+    if(!coordStackInit(initializing, &this->bracketStack) ) {
+        return false;
+    };
+
     this->regenerateStack = false;
 
     this->errorMsg = NULL;
 
     this->arraySize = BRAINFUCK_ARRAY_START_SIZE;
-    free(this->dataArray);
+    if (!initializing) {
+        free(this->dataArray);
+    }
     this->dataArray = malloc(BRAINFUCK_ARRAY_START_SIZE);
     if (!this->dataArray) { // this really shouldn't happen
         this->arraySize = 0;
@@ -1839,7 +1845,7 @@ void processBrainFuck(brainFuckModule* this) {
     //validate inst
     if (this->instY >= G.E.numRows || this->debugMode == EXECUTION_ENDED) {
         this->debugMode = EXECUTION_ENDED;
-        
+
         if (this->errorMsg) {
             setStatusMessage("Execution finished. \x1b[7;31mError: %s\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
@@ -1953,8 +1959,9 @@ void processBrainFuck(brainFuckModule* this) {
             }
             else{
                 //skip till matching closing bracket
-                coordStack stackForSkippping; //need to free mem if dynamic
-                coordStackInit(&stackForSkippping);
+                coordStack stackForSkippping;
+                // stackForSkippping.stackArray = NULL; // not a good soln. Best to seperate init and reset
+                coordStackInit(true, &stackForSkippping);
                 
                 //traverse inst till condition met
                 instForward();
@@ -2032,10 +2039,13 @@ void processBrainFuck(brainFuckModule* this) {
     if (this->instY >= G.E.startRow + G.E.windowRows || this->instY < G.E.startRow) {
         G.E.cy = this->instY;
     }
+    if (this->instY >= G.E.numRows) {
+        G.E.cy = G.E.numRows;
+    }
     if (this->instX >= G.E.startCol + G.E.windowCols || this->instX < G.E.startCol) {
         G.E.cx = this->instX;
     }
-    G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells;
+    G.dataArray.cy = G.B.arrayIndex / G.dataArray.numCells; // maybe make this smarter like above?
 
     if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
 
@@ -2057,7 +2067,7 @@ void processBrainFuck(brainFuckModule* this) {
 void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this) {
     if (!this->regenerateStack) return;
 
-    coordStackInit(&this->bracketStack);
+    coordStackInit(false, &this->bracketStack);
     this->instX = 0;
     this->instY = 0;
     

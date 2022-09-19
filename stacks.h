@@ -3,8 +3,12 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "config.h"
+
+#define COORDSTACK_START_SIZE 100
+#define COORDSTACK_INCREMENT 100
 
 /*** Coordinate struct and stack ***/
 typedef struct coordinate {
@@ -15,10 +19,11 @@ typedef struct coordinate {
 typedef struct coordStack {
     int top;
     int size;
-    coordinate stackArray[100];
+    coordinate * stackArray;
 } coordStack;
 
-void coordStackInit(coordStack* this);
+// best to seperate init and reset
+bool coordStackInit(bool initializing, coordStack* this);
 bool coordStackPush(int x, int y, coordStack* this); // return true on sucess, false on failure
 void coordStackPop(coordStack* this);
 coordinate coordStackTop(coordStack* this); // return {-1,-1} if stack empty

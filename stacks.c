@@ -1,22 +1,39 @@
 #include "stacks.h"
 
 /*** Coordinate struct and stack ***/
-void coordStackInit(coordStack* this) {
+bool coordStackInit(bool initializing, coordStack* this) {
     this->top = -1;
-    this->size = 100;
-    //make this dynamic later
+    this->size = COORDSTACK_START_SIZE;
+    if (!initializing) {
+        free(this->stackArray);
+    }
+    this->stackArray = malloc(sizeof(coordinate) * 100);
+
+    if (!this->stackArray) { // this really shouldn't happen
+        this->size = 0;
+        return false;
+    }
+    else {
+        return true;
+    }
 }
 
 bool coordStackPush(int x, int y, coordStack* this) {
     this->top++;
+    if (this->top >= this->size) {
+        coordinate * temp = realloc(this->stackArray, this->size + COORDSTACK_INCREMENT);
+        if (temp) {
+            this->stackArray = temp;
+            this->size += COORDSTACK_INCREMENT;
+        }
+    }
+
     if (this->top < this->size) {
         this->stackArray[this->top].x = x;
         this->stackArray[this->top].y = y;
         return true;
     }
     else {
-        //allocate more memory when dynamic
-        //brainfuckDie("Loop stack full.", &G.B);
         return false;
     }
 }
