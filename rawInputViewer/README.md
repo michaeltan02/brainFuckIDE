@@ -8,6 +8,6 @@ I decided to include this as a bonus because:
 	   I suggest trying out arrow keys, function keys, combinations with alt/shift, etc. See if you can figure out the pattern.
 
 ** Guide ** 
-Once compiled, ./rawModeViwer to run
+Once compiled, ./rawInputViwer to run
 Ctrl + Q to quit
 Ctrl + C to clear screen
