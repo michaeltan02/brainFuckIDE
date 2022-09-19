@@ -52,9 +52,6 @@ Mkfile.old
 dkms.conf
 
 #repo specific
-*.bf
-gitPAT
 michaelBfIDE
 .vscode/
-Older_Version/
 rawInputViewer
