@@ -18,6 +18,12 @@ bool coordStackInit(bool initializing, coordStack* this) {
     }
 }
 
+void coordStackFree(coordStack * this) {
+    if (this->stackArray) {
+        free(this->stackArray);
+    }
+}
+
 bool coordStackPush(int x, int y, coordStack* this) {
     this->top++;
     if (this->top >= this->size) {

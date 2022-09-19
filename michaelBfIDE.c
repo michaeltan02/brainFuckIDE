@@ -215,7 +215,7 @@ struct globalEnvironment G;
 int main(int argc, char* argv[]) {
 	enableRawMode();
     globalInit();
-    // editorOpen("nested_loop.bf"); //for testing in VScode
+    // editorOpen("DEMO/mandelbrot.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
     }
@@ -768,7 +768,7 @@ coordinate editorLoopCheck(window * this) { // this can maybe replace regenerate
             }
         }
     }
-
+    coordStackFree(&errorCheckStack);
     return returnCoord;
 }
 
@@ -1974,7 +1974,7 @@ void processBrainFuck(brainFuckModule* this) {
                     }
                     if (this->instX >= G.E.row[this->instY].size) {
                         instForward();
-                        break;
+                        continue; // shouldn't happen, but I think this should continue instead of break;
                     }
                     char curInst = G.E.row[this->instY].chars[this->instX];
 
@@ -1999,6 +1999,7 @@ void processBrainFuck(brainFuckModule* this) {
                         instForward();
                     }
                 }
+                coordStackFree(&stackForSkippping);
             }
             break;
         case ']':

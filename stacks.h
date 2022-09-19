@@ -24,6 +24,7 @@ typedef struct coordStack {
 
 // best to seperate init and reset
 bool coordStackInit(bool initializing, coordStack* this);
+void coordStackFree(coordStack* this);
 bool coordStackPush(int x, int y, coordStack* this); // return true on sucess, false on failure
 void coordStackPop(coordStack* this);
 coordinate coordStackTop(coordStack* this); // return {-1,-1} if stack empty
