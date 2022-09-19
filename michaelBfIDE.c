@@ -483,7 +483,7 @@ void windowInsertNewLine(window* this, bool saveUndo) {
     
     // auto-indent
     int numTab = 0;
-    if (this->type == TEXT_EDITOR) {
+    if (AUTO_INDENT && this->type == TEXT_EDITOR) {
         for (int i = 0; i < this->cx; i++) { //check everything before cx for tabs
             if (row->chars[i] == '\t') {
                 numTab++;
@@ -511,7 +511,7 @@ void windowInsertNewLine(window* this, bool saveUndo) {
         undoStackPush(G.E.cx, G.E.cy, LINE_BREAK, '\0', &G.editorUndoStack);
     }
 
-    while (numTab) {
+    while (AUTO_INDENT && numTab) {
         windowInsertChar('\t', this, true);
         numTab--;
     }
@@ -1125,7 +1125,7 @@ void processKeypress() {
                 windowInsertChar(c, &G.E, true);
                 char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                 //if cx is at end of row, curChar would be '\0'
-                if (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') {
+                if (AUTO_COMPLETE_BRACKET && (curChar == '\0' || curChar == ' ' || curChar == ')' || curChar == ']') ) {
                     switch (c) {
                         case '(':
                             windowInsertChar(')', &G.E, true);
@@ -1156,7 +1156,7 @@ void processKeypress() {
         case '}':
         case ']': {
             if (G.activeWindow == TEXT_EDITOR) {
-                if (G.E.cy < G.E.numRows) {
+                if (AUTO_COMPLETE_BRACKET && G.E.cy < G.E.numRows) {
                     char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                     if (curChar == c) {
                         windowMoveCursor(ARROW_RIGHT, &G.E);
@@ -1175,7 +1175,7 @@ void processKeypress() {
         case '"':
         case 39: {    // this char is '
             if (G.activeWindow == TEXT_EDITOR) {
-                if (G.E.cy < G.E.numRows) {
+                if (AUTO_COMPLETE_BRACKET && G.E.cy < G.E.numRows) {
                     char curChar = G.E.row[G.E.cy].chars[G.E.cx];
                     if (curChar == c) {
                         windowMoveCursor(ARROW_RIGHT, &G.E);
