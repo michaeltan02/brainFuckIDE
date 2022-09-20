@@ -135,11 +135,11 @@ void editorUndo();
 void editorFind();
 void editorFindCallback(char * querry, int key);
 char * stringToLowerCase(char * source); // need to free returned buffer
+bool editorLoopValidityCheck(window * this); // return if it's valid
 
 // file i/o 
 void editorOpen(char* fileName);
 char* windowRowToString(int* bufLen, window* this);
-coordinate editorLoopCheck(window * this); // return error, or {-1, -1} if no error
 void editorSave();
 
 /*** Global Input & Output ***/
@@ -215,7 +215,7 @@ struct globalEnvironment G;
 int main(int argc, char* argv[]) {
 	enableRawMode();
     globalInit();
-    // editorOpen("DEMO/mandelbrot.bf"); //for testing in VScode
+    // editorOpen("DEMO/nestedLoopDemo.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
     }
@@ -737,39 +737,48 @@ char* windowRowToString(int* bufLen, window* this) {
     return buf;
 }
 
-coordinate editorLoopCheck(window * this) { // this can maybe replace regenerate brainfuck stack? 
+bool editorLoopValidityCheck(window * this) { // this can maybe replace regenerate brainfuck stack? 
     coordinate returnCoord = {-1, -1};
-    if (this->type != TEXT_EDITOR) return returnCoord;
+    if (this->type != TEXT_EDITOR) return false;
+    
     coordStack errorCheckStack;
-    // errorCheckStack.stackArray = NULL;
     coordStackInit(true, &errorCheckStack);
 
     for (int i = 0; i < this->numRows; i++) {
         erow * row = &this->row[i];
         for (int j = 0; j < row->size; j++) {
             if (row->chars[j] == '[') {
-                if (!coordStackPush(j, i, &errorCheckStack)) {
-                    returnCoord.x = j;
-                    returnCoord.y = i;
-                    return returnCoord;
-                    setStatusMessage("Coordinate stack overflow");
-                }
+                coordStackPush(j, i, &errorCheckStack);
             }
             else if (row->chars[j] == ']') {
                 if (coordStackIsEmpty(&errorCheckStack)) {
-                    returnCoord.x = j;
-                    returnCoord.y = i;
-                    return returnCoord;
-                    setStatusMessage("Cannot find opening bracket");
+                    this->cx = j;
+                    this->cy = i;
+                    coordStackFree(&errorCheckStack);
+                    setStatusMessage("Cannot find opening bracket for {%d,%d}", j, i);
+                    return false;
                 }
                 else {
                     coordStackPop(&errorCheckStack);
                 }
             }
+            else if (row->chars[j] == '#') {
+                break;
+            }
         }
     }
-    coordStackFree(&errorCheckStack);
-    return returnCoord;
+    
+    if (!coordStackIsEmpty(&errorCheckStack)) {
+        this->cx = coordStackTop(&errorCheckStack).x;
+        this->cy = coordStackTop(&errorCheckStack).y;
+        setStatusMessage("Error: {%d,%d} has no closing bracket", this->cx, this->cy);
+        coordStackFree(&errorCheckStack);
+        return false;
+    }
+    else {
+        coordStackFree(&errorCheckStack);
+        return true;
+    }
 }
 
 void editorSave() {
@@ -1021,13 +1030,14 @@ void processKeypress() {
         case F5_FUNCTION_KEY:
             if (G.currentMode == EDIT) {
                 // enter debug mode
-                // maybe make a validityCheck function and put here
-                if (resetBrainfuck(false, &G.B)) {
-                    modeSwitcher(DEBUG);
-                    setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
-                }
-                else {
-                    setStatusMessage("Cannot allocate starting memory for brainfuck");
+                if (editorLoopValidityCheck(&G.E)) {
+                    if (resetBrainfuck(false, &G.B)) {
+                        modeSwitcher(DEBUG);
+                        setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
+                    }
+                    else {
+                        setStatusMessage("Cannot allocate starting memory for brainfuck");
+                    }
                 }
             }
             else if (G.currentMode != EDIT) {
@@ -1826,6 +1836,9 @@ void instForward() { //igores comments
         if (nextRow == NULL) return;
         if (G.B.instX < nextRow->size) {
             nextChar = nextRow->chars[G.B.instX];
+            if (nextChar == '#') {
+                G.B.instX = row->size;
+            }
         }
         else {
             nextChar = '\0';
@@ -2029,6 +2042,10 @@ void processBrainFuck(brainFuckModule* this) {
                 this->debugMode = PAUSED;
                 this->instCounter = 0;
             }
+            instForward();
+            break;
+        case '#': // comment out rest of line
+            this->instX = G.E.row[this->instY].size;
             instForward();
             break;
         default:
