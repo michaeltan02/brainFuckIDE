@@ -13,3 +13,6 @@
 
 #define BRAINFUCK_ARRAY_START_SIZE 30000
 #define BRAINFUCK_ARRAY_INCREASE_INCREMENT 5000
+
+#define EDITOR_HEIGHT_IN_DEBUG_MODE 0.6 // fraction of full window height. must be <1
+#define EDITOR_WIDTH_IN_DEBUG_MODE 0.25 // fraction of full window width. must be <1

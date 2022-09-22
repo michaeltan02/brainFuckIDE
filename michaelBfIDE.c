@@ -145,7 +145,7 @@ void editorSave();
 /*** Global Input & Output ***/
 void processKeypress(void);
 char* promptInput(char* prompt, int inputSizeLimit , void (*callback)(char *, int)); 
-// Need to free the returned buffer. -1 for no limit. Callback func get called after each key stroke, gets current input and new key
+    // Need to free the returned buffer. -1 for no limit. Callback func get current buffer and new key after each key stroke
 
 typedef struct abuf {
     char* b;
@@ -200,7 +200,7 @@ void selectSyntaxHighlight();
 void enableRawMode(void);
 void disableRawMode(void);
 void die(const char* s);
-int readKey(void);
+int readKey(void); // add support for new special keys here
 int getWindowSize (int* rows, int* cols);
 int getCursorPosition(int* rows, int* cols);
 
@@ -209,7 +209,7 @@ void modeSwitcher(topMode nextMode);
 void activeWindowSwicher(windowType nextWindow);
 void updateWindowSizes();
 
-
+/*** Global Struct declaration ***/
 struct globalEnvironment G;
 
 int main(int argc, char* argv[]) {
@@ -234,175 +234,405 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-//terminal
-void enableRawMode() {
-    if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1) {
-        die("tcgetattr");
+/*** Barinfuck logic functions ***/
+bool resetBrainfuck(bool initializing, brainFuckModule* this){
+    this->arrayIndex = 0;
+    
+    this->debugMode = PAUSED;
+
+    this->instCounter = 0;
+
+    this->instX = 0;
+    this->instY = 0;
+
+    if(!coordStackInit(initializing, &this->bracketStack) ) {
+        return false;
+    };
+
+    this->regenerateStack = false;
+
+    this->errorMsg = NULL;
+
+    this->arraySize = BRAINFUCK_ARRAY_START_SIZE;
+    if (!initializing) {
+        free(this->dataArray);
     }
-    atexit(disableRawMode); // it's cool that this can be placed anywhere
-
-    struct termios raw = G.orig_termio;
-    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    raw.c_oflag &= ~(OPOST);
-    raw.c_cflag |= (CS8);
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-
-    raw.c_cc[VMIN] = 0;
-    raw.c_cc[VTIME] = 1;    // adds a timeout to read (in 0.1s)
-
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) { // TCSAFLUCH defines how the change is applied
-        die("tcsetattr"); 
+    this->dataArray = malloc(BRAINFUCK_ARRAY_START_SIZE);
+    if (!this->dataArray) { // this really shouldn't happen
+        this->arraySize = 0;
+        return false;
     }
+    memset(this->dataArray, 0, BRAINFUCK_ARRAY_START_SIZE);
+    return true;
 }
 
-void disableRawMode(void) {
-    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &G.orig_termio) == -1) {
-        die("tcsetattr");   
-    }
-}
+void processBrainFuck(brainFuckModule* this) {
+    //validate inst
+    if (this->instY >= G.E.numRows || this->debugMode == EXECUTION_ENDED) {
+        this->debugMode = EXECUTION_ENDED;
 
-void die(const char* s) { //error handling
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
-    perror(s);
-    write(STDOUT_FILENO, "\r", 1);
-    exit(1);
-}
-
-int readKey(void) {
-    int nread;
-    char c;
-    int oldWidth, oldLength;
-    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
-        if(nread == -1 && errno != EAGAIN) die("read");
-        //experiement with auto updating screen when resizing happen
-        oldWidth = G.fullScreenCols;
-        oldLength = G.fullScreenRows;
-        updateWindowSizes();
-        if (G.fullScreenCols != oldWidth || G.fullScreenRows != oldLength) {
-            globalRefreshScreen();
+        if (this->errorMsg) {
+            setStatusMessage("Execution finished. \x1b[7;31mError: %s\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", this->errorMsg);
         }
-    }
-    if (c == '\x1b') {
-        char seq[5];
-        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
-        
-        switch(seq[0]) {
-            case 's': return ALT_S;
-            case 'f': return ALT_F;
+        else {
+            if (this->regenerateStack) {
+                regenerateBracketStack(this->instX, this->instY, this);
+            }
+
+            if (coordStackIsEmpty(&this->bracketStack)) {
+                setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
+            }
+            else {
+                G.E.cx = coordStackTop(&this->bracketStack).x;
+                G.E.cy = coordStackTop(&this->bracketStack).y;
+                brainfuckDie("Opening bracket not closed.", this);
+            }
         }
-        // if (seq[0] == 's') return ALT_S;
+        return;
+    }
 
-        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+    if (this->instX >= G.E.row[this->instY].size) {
+        // This gets triggered on empty line. Can also happen when user delete stuff in run time
+        instForward();
+        return;
+    }
 
-        if (seq[0] == '[') {
-            if (seq[1] >= '0' && seq[1] <= '9') {
-                if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
-                if (seq[2] == '~') {
-                    switch (seq[1]) {
-                        case '1': return HOME_KEY;
-                        case '3': return DEL_KEY;
-                        case '4': return END_KEY;
-                        case '5': return PAGE_UP;
-                        case '6': return PAGE_DOWN;
-                        case '7': return HOME_KEY;
-                        case '8': return END_KEY;
-                    }
+    char curInst = G.E.row[this->instY].chars[this->instX];
+
+    //validate data cell
+    if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
+        this->debugMode = EXECUTION_ENDED;
+        // preseumably there should be an error message set already
+        return;
+    }
+
+    unsigned char* dataPtr = &(this->dataArray[this->arrayIndex]);
+
+    switch(curInst){
+        case '>':
+            if (this->arrayIndex + 1 >= this->arraySize ) {
+                // allocate more memory
+                unsigned char * temp = realloc(this->dataArray, this->arraySize + BRAINFUCK_ARRAY_INCREASE_INCREMENT);
+                if (temp) {
+                    this->dataArray = temp;
+                    this->arraySize += BRAINFUCK_ARRAY_INCREASE_INCREMENT;
+                    memset(&this->dataArray[this->arrayIndex + 1], 0, BRAINFUCK_ARRAY_INCREASE_INCREMENT);
+                    this->debugMode = PAUSED;
+                    setStatusMessage("%d more bytes allocated for brainfuck", BRAINFUCK_ARRAY_INCREASE_INCREMENT);
                 }
-                else if (seq[2] == ';') {
-                    if (read(STDIN_FILENO, &seq[3], 2) != 2) return '\x1b'; //this means something went wrong
-                    if (seq[3] == '5') { //ctrl key pressed, seq is esc[1;5C, C is from arrow key, 1 is unchanged default keycode (used by page up/down and delete), 5 is modifier meaning ctrl
-                                        //https://en.wikipedia.org/wiki/ANSI_escape_code#:~:text=0%3B%0A%7D-,Terminal%20input%20sequences,-%5Bedit%5D
-                        switch (seq[4]) {
-                            case 'A': return CTRL_UP;
-                            case 'B': return CTRL_DOWN;
-                            case 'C': return CTRL_RIGHT;
-                            case 'D': return CTRL_LEFT;
+            }
+
+            if (this->arrayIndex + 1 >= this->arraySize ) {
+                brainfuckDie("Failed to allocate more memory for brainfuck.", this);
+                return;
+            }
+            else {
+                this->arrayIndex++;
+                instForward();
+            }
+            break;
+        case '<':
+            if (this->arrayIndex - 1 < 0) {
+                brainfuckDie("Attemped to go out of array's lower bound.", this);
+                return;
+            }
+            else {
+                this->arrayIndex--;
+                instForward();
+            }
+            break;
+        case '+':
+            (*dataPtr)++;
+            instForward();
+            break;
+        case '-':
+            (*dataPtr)--;
+            instForward();
+            break;
+        case '.':
+            switch (*dataPtr) {
+                case '\n': //ASCII 10
+                    windowInsertNewLine(&G.O, false);
+                    globalRefreshScreen();
+                    break;
+                case 8: //backspace symbol
+                case BACKSPACE:
+                    windowDelChar(&G.O, false);
+                    break;
+                default:
+                    if ((*dataPtr > 31 && *dataPtr < 127) || *dataPtr =='\t') { //tab is ASCII 9
+                        windowInsertChar(*dataPtr, &G.O, false);
+                    }
+                    break;
+            }
+            instForward();
+            break;
+        case ',': 
+            {
+                if (brainfuckGetByte(dataPtr, this)) {
+                    instForward();
+                }
+            }
+            break;
+        case '[':
+            if(*dataPtr){
+                //add bracket loc to stack
+                if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
+                    brainfuckDie("Loop stack overflow.", this);
+                }
+                instForward();
+            }
+            else{
+                //skip till matching closing bracket
+                coordStack stackForSkippping;
+                coordStackInit(true, &stackForSkippping);
+                //traverse inst till condition met
+                instForward();
+                bool skipping = true;
+                while (skipping) {
+                    if (this->instY >= G.E.numRows) {
+                        skipping = false;
+                        brainfuckDie("Missing closing bracket.", this);
+                        break;
+                    }
+                    if (this->instX >= G.E.row[this->instY].size) {
+                        instForward();
+                        continue;
+                    }
+                    char curInst = G.E.row[this->instY].chars[this->instX];
+
+                    if (curInst == '[') {
+                        if (!coordStackPush(this->instX, this->instY, &stackForSkippping)) {
+                            brainfuckDie("Loop stack full.", this);
+                        }
+                        instForward();
+                    }
+                    else if (curInst == ']') {
+                        if (coordStackIsEmpty(&stackForSkippping)) {
+                            instForward();
+                            skipping = false;
+                            break;
+                        }
+                        else {
+                            coordStackPop(&stackForSkippping);
+                            instForward();
                         }
                     }
+                    else {
+                        instForward();
+                    }
                 }
-                else if (read(STDIN_FILENO, &seq[3], 1) == 1) {
-                    if (seq[3] == '~' && seq[1] == '1') {
-                        switch (seq[2]) {
-                            case '5': return F5_FUNCTION_KEY;
-                            case '7': return F6_FUNCTION_KEY;
-                            case '8': return F7_FUNCTION_KEY;
-                            case '9': return F8_FUNCTION_KEY;
-                        }
-                    }
-                    else if (seq[3] == '~' && seq[1] == '2' && seq[2] == '0') {
-                        return F9_FUNCTION_KEY;
-                    }
+                coordStackFree(&stackForSkippping);
+            }
+            break;
+        case ']':
+            if(*dataPtr){
+                if (this->regenerateStack) {
+                    regenerateBracketStack(this->instX, this->instY, this);
+                }
+                
+                //go back to last open bracket
+                if (!coordStackIsEmpty(&this->bracketStack)) {
+                    this->instX = coordStackTop(&this->bracketStack).x;
+                    this->instY = coordStackTop(&this->bracketStack).y;
+                    instForward(); //don't execute the open bracket again
+                }
+                else {
+                    brainfuckDie("Cannot find opening bracket.", this);
+                }
+            }
+            else{
+                //exit loop
+                coordStackPop(&this->bracketStack);
+                instForward();
+            }
+            break;
+        case '?':
+            if (G.currentMode == DEBUG) {
+                this->debugMode = PAUSED;
+                this->instCounter = 0;
+            }
+            instForward();
+            break;
+        case '#': // comment out rest of line
+            this->instX = G.E.row[this->instY].size;
+            instForward();
+            break;
+        default:
+            instForward();
+            break;
+    }
+
+    // scroll screen if needed
+    if (this->instY >= G.E.startRow + G.E.windowRows || this->instY < G.E.startRow) {
+        G.E.cy = this->instY;
+    }
+    if (this->instY >= G.E.numRows) {
+        G.E.cy = G.E.numRows;
+    }
+    if (this->instX >= G.E.startCol + G.E.windowCols || this->instX <= G.E.startCol) {
+        G.E.cx = this->instX;
+    }
+    
+    int curRowInArray = G.B.arrayIndex / G.dataArray.numCells;
+    if (curRowInArray >= G.dataArray.startRow + G.dataArray.windowRows || curRowInArray < G.dataArray.startRow) {
+        G.dataArray.cy = curRowInArray;
+    }
+
+    if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
+
+    // auto-breakpoint request system
+    if (this->debugMode == PAUSED) {
+        this->instCounter = 0;
+    }
+    else {
+        ++(this->instCounter);
+        if (this->instCounter > BREAK_POINT_REQUEST_THRESHOLD) {
+            this->instCounter = 0;
+            this->debugMode = PAUSED;
+            setStatusMessage("Interpreter executed too long (>%.1E instructions). Breakpoint requested", BREAK_POINT_REQUEST_THRESHOLD);
+        }
+    }
+    
+}
+
+void instForward() { //igores comments
+    char nextChar = '\0';
+    while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
+            nextChar != '.' && nextChar != ',' && nextChar != '[' && nextChar != ']' && nextChar != '?') {
+        erow *row = (G.B.instY >= G.E.numRows) ? NULL : & G.E.row[G.B.instY];
+        //there is a - 1 because we don't need it to go 1 space outside the current line
+        if (row && G.B.instX < row->size - 1 ) {
+            G.B.instX++;
+        }
+        else if (row && G.B.instX >= row->size - 1) {
+            G.B.instY++;
+            G.B.instX = 0;
+        }
+
+        erow *nextRow = (G.B.instY >= G.E.numRows) ? NULL : & G.E.row[G.B.instY];
+        if (nextRow == NULL) return;
+        if (G.B.instX < nextRow->size) {
+            nextChar = nextRow->chars[G.B.instX];
+            if (nextChar == '#') {
+                G.B.instX = nextRow->size;
+            }
+        }
+        else {
+            nextChar = '\0';
+        }
+    }
+}
+
+void brainfuckDie(char* error, brainFuckModule* this) {
+    this->debugMode = EXECUTION_ENDED;
+    setStatusMessage("\x1b[7;31mError: %s\x1b[0m\x1b[7m", error);
+    this->errorMsg = error;
+    globalRefreshScreen();
+}
+
+void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this) {
+    if (!this->regenerateStack) return;
+
+    coordStackInit(false, &this->bracketStack);
+    this->instX = 0;
+    this->instY = 0;
+    
+    //traverse till we reach the closing bracket
+    bool skipping = true;
+    while (!(this->instY == stopPointY && this->instX == stopPointX)) {
+        //validate inst just in case
+        if (this->instY >= G.E.numRows) {
+            return;
+        }
+        if (this->instX >= G.E.row[this->instY].size) {
+            instForward();
+            continue;;
+        }
+
+        char curInst = G.E.row[this->instY].chars[this->instX];
+        if (curInst == '[') {
+            if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
+                brainfuckDie("Loop stack full.", this);
+            }
+        }
+        else if (curInst == ']') {
+            coordStackPop(&this->bracketStack); // don't check if ] is valid
+        }
+        instForward();
+    }
+    this->regenerateStack = false;
+}
+
+bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this) {
+    char * userInput = NULL;
+    bool validInput = false;
+    while (!validInput) {
+        userInput = promptInput("Enter value for selected cell (8-bit alphanumeric only, ESC to cancel): %s", 3, NULL); 
+        if(userInput) {
+            if (userInput[0] >= 48 && userInput[0] <= 57) {
+                // First char is number
+                int potentialNum = atoi(userInput);
+                if(potentialNum == 0 && (userInput[0] != '0')) {
+                    //shouldn't ever happen
+                    validInput = false;
+                    free(userInput);
+                    userInput = NULL;
+                    setStatusMessage("Invalid input");
+                    globalRefreshScreen();
+                    readKey();
+                }
+                else if (potentialNum > 255) {
+                    validInput = false;
+                    free(userInput);
+                    userInput = NULL;
+                    setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
+                    globalRefreshScreen();
+                    readKey();
+                }
+                else {
+                    validInput = true;
+                    *dataPtr = potentialNum;
                 }
             }
             else {
-                switch (seq[1]) {
-                    case 'A': return ARROW_UP;
-                    case 'B': return ARROW_DOWN;
-                    case 'C': return ARROW_RIGHT;
-                    case 'D': return ARROW_LEFT;
-                    case 'H': return HOME_KEY;
-                    case 'F': return END_KEY;
-                }
+                *dataPtr = userInput[0];
+                validInput = true;
             }
         }
-        else if (seq[0] == '0') {
-            switch (seq[1]) {
-                case 'H': return HOME_KEY;
-                case 'F': return END_KEY;
-            }
+        else {
+            //user canceled. So just go back to editor and pause without doing anything
+            this->debugMode = PAUSED;
+            return false;
         }
-        else if (seq[0] == 'O') {
-            switch (seq[1]) {
-                case 'P': return F1_FUNCTION_KEY;
-                case 'Q': return F2_FUNCTION_KEY;
-                case 'R': return F3_FUNCTION_KEY;
-                case 'S': return F4_FUNCTION_KEY;
-                case 't': return F5_FUNCTION_KEY;
-                case 'u': return F6_FUNCTION_KEY;
-                case 'v': return F7_FUNCTION_KEY;
-                case 'l': return F8_FUNCTION_KEY;
-                case 'w': return F9_FUNCTION_KEY;
-                case 'x': return F10_FUNCTION_KEY;
-            }
+    }
+
+    free(userInput);
+    userInput = NULL;
+    return true;
+}
+
+/*** Window ***/
+void windowReset(windowType givenType, window* this) {
+    this->type = givenType;
+    if (this->type != DATA_ARRAY) {
+        for (int i = 0; i < this->numRows; i++) {
+            rowFree(&this->row[i]);
         }
+    }
+    free(this->row);
+    this->row = NULL;
 
-        return '\x1b';
-    }
-    else {
-        return c;
-    }
+    this->cx = 0;
+    this->cy = 0;
+    this->rx = 0;
+    this->startRow = 0;
+    this->startCol = 0;
+    this->numRows = 0;
+    this->dirty = 0;
 }
 
-int getWindowSize (int* rows, int* cols) {
-    struct winsize ws;
-    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
-        if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;  //try move cursor a ton
-        return getCursorPosition(rows, cols);  
-    }
-    else {
-        *rows = ws.ws_row;
-        *cols = ws.ws_col;
-        return 0;
-    }
-}
-
-int getCursorPosition(int* rows, int* cols) {
-    char buf[32];
-    unsigned int i = 0;
-    if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1; //ask terminal for cursor loc
-
-    for (i = 0; i < sizeof(buf) - 1; i++) {
-        if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
-        if (buf[i] == 'R') break;
-    }
-    buf[i] = '\0';
-    //printf("\r\n%s\r\n", &buf[1]);
-    if (buf[0] != '\x1b' || buf[1] != '[') return -1;
-    if (sscanf(&buf[2], "%d;%d", rows, cols) !=2) return -1;
-}
-
-//row operation
+// row-based operations
 void windowInsertRow(int at, char* s, size_t len, window* this) {
     if (at < 0 || at > this->numRows) return;
     //allocate memory for a new row
@@ -448,6 +678,7 @@ int dataArrayCxToIndex() {
     return (G.dataArray.cy * G.dataArray.numCells + G.dataArray.cx);
 }
 
+// window operations
 void windowInsertChar(int c, window* this, bool saveUndo) {
     if (this->cy == this->numRows) {
         windowInsertRow(this->numRows,"", 0, this);
@@ -558,6 +789,124 @@ void windowDelChar(window* this, bool saveUndo) {
         }
     }
     this->dirty++;
+}
+
+void windowScroll(window* this) {
+    if (this->type == DATA_ARRAY) {
+        dataArrayScroll(this);
+        return;
+    }
+
+    //first process tabs. Each time E.cx get change, we will get to here, and then calculate the correct E.rx to show
+    this->rx = 0;
+    if (this->cy < this->numRows) {
+        this->rx = windowCxToRx(&this->row[this->cy], this->cx);
+    }
+
+    //now is actual scrolling
+    if (this->cy < this->startRow) {
+        this->startRow = this->cy;
+    }
+    if (this->cy >= this->startRow + this->windowRows) {
+        this->startRow = this->cy - this->windowRows + 1;
+    }
+
+    if (this->rx < this->startCol) {
+        this->startCol = this->rx;
+    }
+    if (this->rx >= this->startCol + this->windowCols) {
+        this->startCol = this->rx - this->windowCols + 1;
+    }
+}
+
+void dataArrayScroll(window* this) {
+    if (this-> type != DATA_ARRAY) return;
+
+    if (this->cy < this->startRow) {
+        this->startRow = this->cy;
+    }
+    if (this->cy >= this->startRow + this->windowRows) {
+        this->startRow = this->cy - this->windowRows + 1;
+    }
+
+    G.dataArray.rx = G.dataArray.cx * 4 + 1; 
+}
+
+void windowMoveCursor(int key, window* this){
+    if (this->type == DATA_ARRAY) {
+        dataArrayMoveCursor(key, this);
+        return;
+    }
+
+    erow* row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
+
+    switch (key) {
+        case ARROW_UP:
+            if (this->cy > 0) this->cy--;
+            break;
+        case ARROW_LEFT:
+            if (this->cx != 0) {
+                this->cx--;
+            } 
+            else if (this->cy > 0) {
+                this->cy--;
+                this->cx = this->row[this->cy].size;
+            }
+            break;
+        case ARROW_DOWN:
+            if (this->cy < this->numRows) this->cy++;
+            break;
+        case ARROW_RIGHT:
+            if (row && this->cx < row->size ) {
+                this->cx++;
+            }
+            else if (this->cy < this->numRows && this->cx == row->size) {
+                this->cy++;
+                this->cx = 0;
+            }
+            break;
+    }
+    //correct cursor if needed
+    row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
+    int rowLen = row ? row->size : 0;
+    if (this->cx > rowLen) {
+        this->cx = rowLen;
+    }
+}
+
+void dataArrayMoveCursor(int key, window* this){ //this of this as virtual func of above
+    if (this->type != DATA_ARRAY) return;
+
+    switch (key) {
+        case ARROW_UP:
+            if (this->cy > 0) this->cy--;
+            break;
+        case ARROW_LEFT:
+            if (this->cx != 0) {
+                this->cx--;
+            } 
+            else if (this->cy > 0) {
+                this->cy--;
+                this->cx = this->numCells - 1;
+            }
+            break;
+        case ARROW_DOWN:
+            if (this->cy < this->numRows - 1) this->cy++;
+            break;
+        case ARROW_RIGHT:
+            if (this->cx < this->numCells - 1 ) {
+                this->cx++;
+            }
+            else if (this->cy < this->numRows - 1 && this->cx == this->numCells - 1) {
+                this->cy++;
+                this->cx = 0;
+            }
+            break;
+    }
+
+    if (this->cx > this->numCells - 1) {
+        this->cx = this->numCells - 1;
+    }
 }
 
 void editorUndo() {
@@ -694,49 +1043,6 @@ char * stringToLowerCase(char * source) {
     }
 }
 
-//file i/o
-void editorOpen(char* fileName) {
-    free(G.fileName);
-    G.fileName = strdup(fileName);
-    selectSyntaxHighlight();
-
-    FILE *fp = fopen(fileName, "r");
-    if (!fp) die("fopen");
-    char* line = NULL;
-    size_t lineCap = 0; //cuz getline can be more lineCap than needed
-    ssize_t lineLen; 
-    
-    while ((lineLen = getline(&line, &lineCap, fp)) != -1) {
-        while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ) { //strip off change line
-            lineLen--;
-        }
-        windowInsertRow(G.E.numRows, line, lineLen, &G.E);
-    }
-
-    free(line);
-    fclose(fp);
-    G.E.dirty = 0;
-}
-
-char* windowRowToString(int* bufLen, window* this) {
-    int totalLen = 0;
-    int j;
-    for (j = 0; j < this->numRows; j++) {
-        totalLen += this->row[j].size + 1;  //+ 1 is for \n
-    }
-    if (bufLen != NULL)*bufLen = totalLen;
-
-    char* buf = malloc(totalLen);
-    char* p = buf;
-    for (j = 0; j < this->numRows; j++) {
-        memcpy(p, this->row[j].chars, this->row[j].size);
-        p += this->row[j].size;
-        *p = '\n';
-        p++;
-    }
-    return buf;
-}
-
 bool editorLoopValidityCheck(window * this) { // this can maybe replace regenerate brainfuck stack? 
     coordinate returnCoord = {-1, -1};
     if (this->type != TEXT_EDITOR) return false;
@@ -781,6 +1087,49 @@ bool editorLoopValidityCheck(window * this) { // this can maybe replace regenera
     }
 }
 
+// file i/o
+void editorOpen(char* fileName) {
+    free(G.fileName);
+    G.fileName = strdup(fileName);
+    selectSyntaxHighlight();
+
+    FILE *fp = fopen(fileName, "r");
+    if (!fp) die("fopen");
+    char* line = NULL;
+    size_t lineCap = 0; //cuz getline can be more lineCap than needed
+    ssize_t lineLen; 
+    
+    while ((lineLen = getline(&line, &lineCap, fp)) != -1) {
+        while (lineLen > 0 && (line[lineLen-1] == '\n' || line[lineLen-1] == '\r') ) { //strip off change line
+            lineLen--;
+        }
+        windowInsertRow(G.E.numRows, line, lineLen, &G.E);
+    }
+
+    free(line);
+    fclose(fp);
+    G.E.dirty = 0;
+}
+
+char* windowRowToString(int* bufLen, window* this) {
+    int totalLen = 0;
+    int j;
+    for (j = 0; j < this->numRows; j++) {
+        totalLen += this->row[j].size + 1;  //+ 1 is for \n
+    }
+    if (bufLen != NULL)*bufLen = totalLen;
+
+    char* buf = malloc(totalLen);
+    char* p = buf;
+    for (j = 0; j < this->numRows; j++) {
+        memcpy(p, this->row[j].chars, this->row[j].size);
+        p += this->row[j].size;
+        *p = '\n';
+        p++;
+    }
+    return buf;
+}
+
 void editorSave() {
     if (G.fileName == NULL) {
         G.fileName = promptInput("Save as (ESC to cancel): %s", 255, NULL);
@@ -820,7 +1169,8 @@ void editorSave() {
     setStatusMessage("Can't save! I/O errror: %s", strerror(errno));
 }
 
-//input
+/*** Global Input & Output ***/
+// input
 void processKeypress() {
     static int curQuitTimes = QUIT_TIMES;   //preserve value even after going out of scope. Don't get re-initialized
     
@@ -1221,83 +1571,6 @@ void processKeypress() {
     curQuitTimes = QUIT_TIMES;
 }
 
-void windowMoveCursor(int key, window* this){
-    if (this->type == DATA_ARRAY) {
-        dataArrayMoveCursor(key, this);
-        return;
-    }
-
-    erow* row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
-
-    switch (key) {
-        case ARROW_UP:
-            if (this->cy > 0) this->cy--;
-            break;
-        case ARROW_LEFT:
-            if (this->cx != 0) {
-                this->cx--;
-            } 
-            else if (this->cy > 0) {
-                this->cy--;
-                this->cx = this->row[this->cy].size;
-            }
-            break;
-        case ARROW_DOWN:
-            if (this->cy < this->numRows) this->cy++;
-            break;
-        case ARROW_RIGHT:
-            if (row && this->cx < row->size ) {
-                this->cx++;
-            }
-            else if (this->cy < this->numRows && this->cx == row->size) {
-                this->cy++;
-                this->cx = 0;
-            }
-            break;
-    }
-    //correct cursor if needed
-    row = (this->cy >= this->numRows) ? NULL : & this->row[this->cy];
-    int rowLen = row ? row->size : 0;
-    if (this->cx > rowLen) {
-        this->cx = rowLen;
-    }
-}
-
-void dataArrayMoveCursor(int key, window* this){ //this of this as virtual func of above
-    if (this->type != DATA_ARRAY) return;
-
-    switch (key) {
-        case ARROW_UP:
-            if (this->cy > 0) this->cy--;
-            break;
-        case ARROW_LEFT:
-            if (this->cx != 0) {
-                this->cx--;
-            } 
-            else if (this->cy > 0) {
-                this->cy--;
-                this->cx = this->numCells - 1;
-            }
-            break;
-        case ARROW_DOWN:
-            if (this->cy < this->numRows - 1) this->cy++;
-            break;
-        case ARROW_RIGHT:
-            if (this->cx < this->numCells - 1 ) {
-                this->cx++;
-            }
-            else if (this->cy < this->numRows - 1 && this->cx == this->numCells - 1) {
-                this->cy++;
-                this->cx = 0;
-            }
-            break;
-    }
-
-    if (this->cx > this->numCells - 1) {
-        this->cx = this->numCells - 1;
-    }
-}
-
 char* promptInput(char * prompt, int inputSizeLimit , void (*callback)(char *, int)){
     size_t bufSize = 128;
     char * buf = malloc(bufSize);   //our dynamic input buffer
@@ -1350,48 +1623,16 @@ char* promptInput(char * prompt, int inputSizeLimit , void (*callback)(char *, i
     }
 }
 
-void windowScroll(window* this) {
-    if (this->type == DATA_ARRAY) {
-        dataArrayScroll(this);
-        return;
-    }
+// output
+void abAppend(struct abuf * ab, const char * s, int len) {
+    char * new = (char *) realloc(ab->b, ab->len + len);
+    if (new == NULL) return;
 
-    //first process tabs. Each time E.cx get change, we will get to here, and then calculate the correct E.rx to show
-    this->rx = 0;
-    if (this->cy < this->numRows) {
-        this->rx = windowCxToRx(&this->row[this->cy], this->cx);
-    }
-
-    //now is actual scrolling
-    if (this->cy < this->startRow) {
-        this->startRow = this->cy;
-    }
-    if (this->cy >= this->startRow + this->windowRows) {
-        this->startRow = this->cy - this->windowRows + 1;
-    }
-
-    if (this->rx < this->startCol) {
-        this->startCol = this->rx;
-    }
-    if (this->rx >= this->startCol + this->windowCols) {
-        this->startCol = this->rx - this->windowCols + 1;
-    }
+    memcpy(&new[ab->len], s, len);
+    ab->b = new;
+    ab->len += len;
 }
 
-void dataArrayScroll(window* this) {
-    if (this-> type != DATA_ARRAY) return;
-
-    if (this->cy < this->startRow) {
-        this->startRow = this->cy;
-    }
-    if (this->cy >= this->startRow + this->windowRows) {
-        this->startRow = this->cy - this->windowRows + 1;
-    }
-
-    G.dataArray.rx = G.dataArray.cx * 4 + 1; 
-}
-
-// output functions
 void globalRefreshScreen(){
     windowScroll(&G.E);
     if (G.currentMode != TEXT_EDITOR) { 
@@ -1420,6 +1661,12 @@ void globalRefreshScreen(){
     write(STDOUT_FILENO, ab.b, ab.len);
     abFree(&ab);
 
+}
+
+void setGlobalCursor(struct abuf * ab, int x, int y) {
+    char buf[32];
+    snprintf(buf, sizeof(buf),"\x1b[%d;%dH", y, x);
+    abAppend(ab, buf, strlen(buf));
 }
 
 void drawEditor(struct abuf * ab) {
@@ -1639,16 +1886,6 @@ void drawStatusBar(struct abuf * ab) {
     abAppend(ab, "\r\n", 2);
 }
 
-void setStatusMessage(const char * fmt, ...) {
-    //This is how you do function with varied amount of argument (variadic) like printf, 
-    va_list ap;
-    va_start(ap, fmt); //initalizes ap with start of variable list
-    //nomrally you'd then use va_arg(va_list, <varl type>) to access next argument, but we just use vsnprintf to automatically parse fmt in the printf way
-    vsnprintf(G.statusMsg, sizeof(G.statusMsg), fmt, ap);
-    va_end(ap); //clean up for va_start
-    G.statusMsg_time = time(NULL); //current time, in seconds since midnight Jan 1, 1970
-}
-
 void drawMessageBar(struct abuf * ab) {
     abAppend(ab, "\x1b[7m", 4);
 
@@ -1662,12 +1899,17 @@ void drawMessageBar(struct abuf * ab) {
     abAppend(ab, "\x1b[m", 3);
 }
 
-void setGlobalCursor(struct abuf * ab, int x, int y) {
-    char buf[32];
-    snprintf(buf, sizeof(buf),"\x1b[%d;%dH", y, x);
-    abAppend(ab, buf, strlen(buf));
+void setStatusMessage(const char * fmt, ...) {
+    //This is how you do function with varied amount of argument (variadic) like printf, 
+    va_list ap;
+    va_start(ap, fmt); //initalizes ap with start of variable list
+    //nomrally you'd then use va_arg(va_list, <varl type>) to access next argument, but we just use vsnprintf to automatically parse fmt in the printf way
+    vsnprintf(G.statusMsg, sizeof(G.statusMsg), fmt, ap);
+    va_end(ap); //clean up for va_start
+    G.statusMsg_time = time(NULL); //current time, in seconds since midnight Jan 1, 1970
 }
 
+/*** Global environmnet ***/
 void globalInit() {
     resetBrainfuck(true, &G.B);
     windowReset(OUTPUT, &G.O);
@@ -1697,33 +1939,174 @@ void selectSyntaxHighlight() {
     }
 }
 
-void abAppend(struct abuf * ab, const char * s, int len) {
-    char * new = (char *) realloc(ab->b, ab->len + len);
-    if (new == NULL) return;
+// terminal
+void enableRawMode() {
+    if (tcgetattr(STDIN_FILENO, &G.orig_termio) == -1) {
+        die("tcgetattr");
+    }
+    atexit(disableRawMode); // it's cool that this can be placed anywhere
 
-    memcpy(&new[ab->len], s, len);
-    ab->b = new;
-    ab->len += len;
+    struct termios raw = G.orig_termio;
+    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    raw.c_oflag &= ~(OPOST);
+    raw.c_cflag |= (CS8);
+    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 1;    // adds a timeout to read (in 0.1s)
+
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) { // TCSAFLUCH defines how the change is applied
+        die("tcsetattr"); 
+    }
 }
 
-void windowReset(windowType givenType, window* this) {
-    this->type = givenType;
-    if (this->type != DATA_ARRAY) {
-        for (int i = 0; i < this->numRows; i++) {
-            rowFree(&this->row[i]);
+void disableRawMode(void) {
+    if(tcsetattr(STDIN_FILENO, TCSAFLUSH, &G.orig_termio) == -1) {
+        die("tcsetattr");   
+    }
+}
+
+void die(const char* s) { //error handling
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+    perror(s);
+    write(STDOUT_FILENO, "\r", 1);
+    exit(1);
+}
+
+int readKey(void) {
+    int nread;
+    char c;
+    int oldWidth, oldLength;
+    while ((nread = read(STDIN_FILENO, &c, 1)) != 1) {
+        if(nread == -1 && errno != EAGAIN) die("read");
+        //experiement with auto updating screen when resizing happen
+        oldWidth = G.fullScreenCols;
+        oldLength = G.fullScreenRows;
+        updateWindowSizes();
+        if (G.fullScreenCols != oldWidth || G.fullScreenRows != oldLength) {
+            globalRefreshScreen();
         }
     }
-    free(this->row);
-    this->row = NULL;
+    if (c == '\x1b') {
+        char seq[5];
+        if (read(STDIN_FILENO, &seq[0], 1) != 1) return '\x1b';
+        
+        switch(seq[0]) {
+            case 's': return ALT_S;
+            case 'f': return ALT_F;
+        }
+        // if (seq[0] == 's') return ALT_S;
 
-    this->cx = 0;
-    this->cy = 0;
-    this->rx = 0;
-    this->startRow = 0;
-    this->startCol = 0;
-    this->numRows = 0;
-    this->dirty = 0;
+        if (read(STDIN_FILENO, &seq[1], 1) != 1) return '\x1b';
+
+        if (seq[0] == '[') {
+            if (seq[1] >= '0' && seq[1] <= '9') {
+                if (read(STDIN_FILENO, &seq[2], 1) != 1) return '\x1b';
+                if (seq[2] == '~') {
+                    switch (seq[1]) {
+                        case '1': return HOME_KEY;
+                        case '3': return DEL_KEY;
+                        case '4': return END_KEY;
+                        case '5': return PAGE_UP;
+                        case '6': return PAGE_DOWN;
+                        case '7': return HOME_KEY;
+                        case '8': return END_KEY;
+                    }
+                }
+                else if (seq[2] == ';') {
+                    if (read(STDIN_FILENO, &seq[3], 2) != 2) return '\x1b'; //this means something went wrong
+                    if (seq[3] == '5') { //ctrl key pressed, seq is esc[1;5C, C is from arrow key, 1 is unchanged default keycode (used by page up/down and delete), 5 is modifier meaning ctrl
+                                        //https://en.wikipedia.org/wiki/ANSI_escape_code#:~:text=0%3B%0A%7D-,Terminal%20input%20sequences,-%5Bedit%5D
+                        switch (seq[4]) {
+                            case 'A': return CTRL_UP;
+                            case 'B': return CTRL_DOWN;
+                            case 'C': return CTRL_RIGHT;
+                            case 'D': return CTRL_LEFT;
+                        }
+                    }
+                }
+                else if (read(STDIN_FILENO, &seq[3], 1) == 1) {
+                    if (seq[3] == '~' && seq[1] == '1') {
+                        switch (seq[2]) {
+                            case '5': return F5_FUNCTION_KEY;
+                            case '7': return F6_FUNCTION_KEY;
+                            case '8': return F7_FUNCTION_KEY;
+                            case '9': return F8_FUNCTION_KEY;
+                        }
+                    }
+                    else if (seq[3] == '~' && seq[1] == '2' && seq[2] == '0') {
+                        return F9_FUNCTION_KEY;
+                    }
+                }
+            }
+            else {
+                switch (seq[1]) {
+                    case 'A': return ARROW_UP;
+                    case 'B': return ARROW_DOWN;
+                    case 'C': return ARROW_RIGHT;
+                    case 'D': return ARROW_LEFT;
+                    case 'H': return HOME_KEY;
+                    case 'F': return END_KEY;
+                }
+            }
+        }
+        else if (seq[0] == '0') {
+            switch (seq[1]) {
+                case 'H': return HOME_KEY;
+                case 'F': return END_KEY;
+            }
+        }
+        else if (seq[0] == 'O') {
+            switch (seq[1]) {
+                case 'P': return F1_FUNCTION_KEY;
+                case 'Q': return F2_FUNCTION_KEY;
+                case 'R': return F3_FUNCTION_KEY;
+                case 'S': return F4_FUNCTION_KEY;
+                case 't': return F5_FUNCTION_KEY;
+                case 'u': return F6_FUNCTION_KEY;
+                case 'v': return F7_FUNCTION_KEY;
+                case 'l': return F8_FUNCTION_KEY;
+                case 'w': return F9_FUNCTION_KEY;
+                case 'x': return F10_FUNCTION_KEY;
+            }
+        }
+
+        return '\x1b';
+    }
+    else {
+        return c;
+    }
 }
+
+int getWindowSize (int* rows, int* cols) {
+    struct winsize ws;
+    if(ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
+        if (write(STDOUT_FILENO, "\x1b[999C\x1b[999B", 12) != 12) return -1;  //try move cursor a ton
+        return getCursorPosition(rows, cols);  
+    }
+    else {
+        *rows = ws.ws_row;
+        *cols = ws.ws_col;
+        return 0;
+    }
+}
+
+int getCursorPosition(int* rows, int* cols) {
+    char buf[32];
+    unsigned int i = 0;
+    if (write(STDOUT_FILENO, "\x1b[6n", 4) != 4) return -1; //ask terminal for cursor loc
+
+    for (i = 0; i < sizeof(buf) - 1; i++) {
+        if (read(STDIN_FILENO, &buf[i], 1) != 1) break;
+        if (buf[i] == 'R') break;
+    }
+    buf[i] = '\0';
+    //printf("\r\n%s\r\n", &buf[1]);
+    if (buf[0] != '\x1b' || buf[1] != '[') return -1;
+    if (sscanf(&buf[2], "%d;%d", rows, cols) !=2) return -1;
+}
+
 
 // modes and windows
 void modeSwitcher(topMode nextMode) {
@@ -1762,8 +2145,10 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
             break;
         case DEBUG:
         case EXECUTE:
-            G.E.windowCols = (G.fullScreenCols / 2) - 2;
-            G.E.windowRows = (G.fullScreenRows * 3) / 5 - 2;
+            // G.E.windowCols = (G.fullScreenCols / 2) - 2;
+            G.E.windowCols = G.fullScreenCols * EDITOR_WIDTH_IN_DEBUG_MODE - 2;
+            // G.E.windowRows = (G.fullScreenRows * 3) / 5 - 2;
+            G.E.windowRows = G.fullScreenRows * EDITOR_HEIGHT_IN_DEBUG_MODE - 2;
             break;
     }
 
@@ -1786,380 +2171,3 @@ void updateWindowSizes() { //Chaning window size in debug mode has some funky bu
     }
 }
 
-/*** Barinfuck logic functions ***/
-bool resetBrainfuck(bool initializing, brainFuckModule* this){
-    this->arrayIndex = 0;
-    
-    this->debugMode = PAUSED;
-
-    this->instCounter = 0;
-
-    this->instX = 0;
-    this->instY = 0;
-
-    if(!coordStackInit(initializing, &this->bracketStack) ) {
-        return false;
-    };
-
-    this->regenerateStack = false;
-
-    this->errorMsg = NULL;
-
-    this->arraySize = BRAINFUCK_ARRAY_START_SIZE;
-    if (!initializing) {
-        free(this->dataArray);
-    }
-    this->dataArray = malloc(BRAINFUCK_ARRAY_START_SIZE);
-    if (!this->dataArray) { // this really shouldn't happen
-        this->arraySize = 0;
-        return false;
-    }
-    memset(this->dataArray, 0, BRAINFUCK_ARRAY_START_SIZE);
-    return true;
-}
-
-void instForward() { //igores comments
-    char nextChar = '\0';
-    while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
-            nextChar != '.' && nextChar != ',' && nextChar != '[' && nextChar != ']' && nextChar != '?') {
-        erow *row = (G.B.instY >= G.E.numRows) ? NULL : & G.E.row[G.B.instY];
-        //there is a - 1 because we don't need it to go 1 space outside the current line
-        if (row && G.B.instX < row->size - 1 ) {
-            G.B.instX++;
-        }
-        else if (row && G.B.instX >= row->size - 1) {
-            G.B.instY++;
-            G.B.instX = 0;
-        }
-
-        erow *nextRow = (G.B.instY >= G.E.numRows) ? NULL : & G.E.row[G.B.instY];
-        if (nextRow == NULL) return;
-        if (G.B.instX < nextRow->size) {
-            nextChar = nextRow->chars[G.B.instX];
-            if (nextChar == '#') {
-                G.B.instX = nextRow->size;
-            }
-        }
-        else {
-            nextChar = '\0';
-        }
-    }
-}
-
-void brainfuckDie(char* error, brainFuckModule* this) {
-    this->debugMode = EXECUTION_ENDED;
-    setStatusMessage("\x1b[7;31mError: %s\x1b[0m\x1b[7m", error);
-    this->errorMsg = error;
-    globalRefreshScreen();
-}
-
-void processBrainFuck(brainFuckModule* this) {
-    //validate inst
-    if (this->instY >= G.E.numRows || this->debugMode == EXECUTION_ENDED) {
-        this->debugMode = EXECUTION_ENDED;
-
-        if (this->errorMsg) {
-            setStatusMessage("Execution finished. \x1b[7;31mError: %s\x1b[0m\x1b[7m Press F8 to restart, F9 to quit to editor", this->errorMsg);
-        }
-        else {
-            if (this->regenerateStack) {
-                regenerateBracketStack(this->instX, this->instY, this);
-            }
-
-            if (coordStackIsEmpty(&this->bracketStack)) {
-                setStatusMessage("Execution finished. Press F8 to restart, F9 to quit to editor");
-            }
-            else {
-                G.E.cx = coordStackTop(&this->bracketStack).x;
-                G.E.cy = coordStackTop(&this->bracketStack).y;
-                brainfuckDie("Opening bracket not closed.", this);
-            }
-        }
-        return;
-    }
-
-    if (this->instX >= G.E.row[this->instY].size) {
-        // This gets triggered on empty line. Can also happen when user delete stuff in run time
-        instForward();
-        return;
-    }
-
-    char curInst = G.E.row[this->instY].chars[this->instX];
-
-    //validate data cell
-    if (this->arrayIndex < 0 || this->arrayIndex >= this->arraySize) {
-        this->debugMode = EXECUTION_ENDED;
-        // preseumably there should be an error message set already
-        return;
-    }
-
-    unsigned char* dataPtr = &(this->dataArray[this->arrayIndex]);
-
-    switch(curInst){
-        case '>':
-            if (this->arrayIndex + 1 >= this->arraySize ) {
-                // allocate more memory
-                unsigned char * temp = realloc(this->dataArray, this->arraySize + BRAINFUCK_ARRAY_INCREASE_INCREMENT);
-                if (temp) {
-                    this->dataArray = temp;
-                    this->arraySize += BRAINFUCK_ARRAY_INCREASE_INCREMENT;
-                    memset(&this->dataArray[this->arrayIndex + 1], 0, BRAINFUCK_ARRAY_INCREASE_INCREMENT);
-                    this->debugMode = PAUSED;
-                    setStatusMessage("%d more bytes allocated for brainfuck", BRAINFUCK_ARRAY_INCREASE_INCREMENT);
-                }
-            }
-
-            if (this->arrayIndex + 1 >= this->arraySize ) {
-                brainfuckDie("Failed to allocate more memory for brainfuck.", this);
-                return;
-            }
-            else {
-                this->arrayIndex++;
-                instForward();
-            }
-            break;
-        case '<':
-            if (this->arrayIndex - 1 < 0) {
-                brainfuckDie("Attemped to go out of array's lower bound.", this);
-                return;
-            }
-            else {
-                this->arrayIndex--;
-                instForward();
-            }
-            break;
-        case '+':
-            (*dataPtr)++;
-            instForward();
-            break;
-        case '-':
-            (*dataPtr)--;
-            instForward();
-            break;
-        case '.':
-            switch (*dataPtr) {
-                case '\n': //ASCII 10
-                    windowInsertNewLine(&G.O, false);
-                    globalRefreshScreen();
-                    break;
-                case 8: //backspace symbol
-                case BACKSPACE:
-                    windowDelChar(&G.O, false);
-                    break;
-                default:
-                    if ((*dataPtr > 31 && *dataPtr < 127) || *dataPtr =='\t') { //tab is ASCII 9
-                        windowInsertChar(*dataPtr, &G.O, false);
-                    }
-                    break;
-            }
-            instForward();
-            break;
-        case ',': 
-            {
-                if (brainfuckGetByte(dataPtr, this)) {
-                    instForward();
-                }
-            }
-            break;
-        case '[':
-            if(*dataPtr){
-                //add bracket loc to stack
-                if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
-                    brainfuckDie("Loop stack overflow.", this);
-                }
-                instForward();
-            }
-            else{
-                //skip till matching closing bracket
-                coordStack stackForSkippping;
-                coordStackInit(true, &stackForSkippping);
-                //traverse inst till condition met
-                instForward();
-                bool skipping = true;
-                while (skipping) {
-                    if (this->instY >= G.E.numRows) {
-                        skipping = false;
-                        brainfuckDie("Missing closing bracket.", this);
-                        break;
-                    }
-                    if (this->instX >= G.E.row[this->instY].size) {
-                        instForward();
-                        continue;
-                    }
-                    char curInst = G.E.row[this->instY].chars[this->instX];
-
-                    if (curInst == '[') {
-                        if (!coordStackPush(this->instX, this->instY, &stackForSkippping)) {
-                            brainfuckDie("Loop stack full.", this);
-                        }
-                        instForward();
-                    }
-                    else if (curInst == ']') {
-                        if (coordStackIsEmpty(&stackForSkippping)) {
-                            instForward();
-                            skipping = false;
-                            break;
-                        }
-                        else {
-                            coordStackPop(&stackForSkippping);
-                            instForward();
-                        }
-                    }
-                    else {
-                        instForward();
-                    }
-                }
-                coordStackFree(&stackForSkippping);
-            }
-            break;
-        case ']':
-            if(*dataPtr){
-                if (this->regenerateStack) {
-                    regenerateBracketStack(this->instX, this->instY, this);
-                }
-                
-                //go back to last open bracket
-                if (!coordStackIsEmpty(&this->bracketStack)) {
-                    this->instX = coordStackTop(&this->bracketStack).x;
-                    this->instY = coordStackTop(&this->bracketStack).y;
-                    instForward(); //don't execute the open bracket again
-                }
-                else {
-                    brainfuckDie("Cannot find opening bracket.", this);
-                }
-            }
-            else{
-                //exit loop
-                coordStackPop(&this->bracketStack);
-                instForward();
-            }
-            break;
-        case '?':
-            if (G.currentMode == DEBUG) {
-                this->debugMode = PAUSED;
-                this->instCounter = 0;
-            }
-            instForward();
-            break;
-        case '#': // comment out rest of line
-            this->instX = G.E.row[this->instY].size;
-            instForward();
-            break;
-        default:
-            instForward();
-            break;
-    }
-
-    // scroll screen if needed
-    if (this->instY >= G.E.startRow + G.E.windowRows || this->instY < G.E.startRow) {
-        G.E.cy = this->instY;
-    }
-    if (this->instY >= G.E.numRows) {
-        G.E.cy = G.E.numRows;
-    }
-    if (this->instX >= G.E.startCol + G.E.windowCols || this->instX <= G.E.startCol) {
-        G.E.cx = this->instX;
-    }
-    
-    int curRowInArray = G.B.arrayIndex / G.dataArray.numCells;
-    if (curRowInArray >= G.dataArray.startRow + G.dataArray.windowRows) {
-        G.dataArray.cy = curRowInArray;
-    }
-
-    if (this->debugMode == STEP_BY_STEP) this->debugMode = PAUSED;
-
-    // auto-breakpoint request system
-    if (this->debugMode == PAUSED) {
-        this->instCounter = 0;
-    }
-    else {
-        ++(this->instCounter);
-        if (this->instCounter > BREAK_POINT_REQUEST_THRESHOLD) {
-            this->instCounter = 0;
-            this->debugMode = PAUSED;
-            setStatusMessage("Interpreter executed too long (>%.1E instructions). Breakpoint requested", BREAK_POINT_REQUEST_THRESHOLD);
-        }
-    }
-    
-}
-
-void regenerateBracketStack(int stopPointX, int stopPointY, brainFuckModule* this) {
-    if (!this->regenerateStack) return;
-
-    coordStackInit(false, &this->bracketStack);
-    this->instX = 0;
-    this->instY = 0;
-    
-    //traverse till we reach the closing bracket
-    bool skipping = true;
-    while (!(this->instY == stopPointY && this->instX == stopPointX)) {
-        //validate inst just in case
-        if (this->instY >= G.E.numRows) {
-            return;
-        }
-        if (this->instX >= G.E.row[this->instY].size) {
-            instForward();
-            continue;;
-        }
-
-        char curInst = G.E.row[this->instY].chars[this->instX];
-        if (curInst == '[') {
-            if (!coordStackPush(this->instX, this->instY, &this->bracketStack)) {
-                brainfuckDie("Loop stack full.", this);
-            }
-        }
-        else if (curInst == ']') {
-            coordStackPop(&this->bracketStack); // don't check if ] is valid
-        }
-        instForward();
-    }
-    this->regenerateStack = false;
-}
-
-bool brainfuckGetByte(unsigned char * dataPtr, brainFuckModule * this) {
-    char * userInput = NULL;
-    bool validInput = false;
-    while (!validInput) {
-        userInput = promptInput("Enter value for selected cell (8-bit alphanumeric only, ESC to cancel): %s", 3, NULL); 
-        if(userInput) {
-            if (userInput[0] >= 48 && userInput[0] <= 57) {
-                // First char is number
-                int potentialNum = atoi(userInput);
-                if(potentialNum == 0 && (userInput[0] != '0')) {
-                    //shouldn't ever happen
-                    validInput = false;
-                    free(userInput);
-                    userInput = NULL;
-                    setStatusMessage("Invalid input");
-                    globalRefreshScreen();
-                    readKey();
-                }
-                else if (potentialNum > 255) {
-                    validInput = false;
-                    free(userInput);
-                    userInput = NULL;
-                    setStatusMessage("Invalid input -- Number exceeded 8-bit limit");
-                    globalRefreshScreen();
-                    readKey();
-                }
-                else {
-                    validInput = true;
-                    *dataPtr = potentialNum;
-                }
-            }
-            else {
-                *dataPtr = userInput[0];
-                validInput = true;
-            }
-        }
-        else {
-            //user canceled. So just go back to editor and pause without doing anything
-            this->debugMode = PAUSED;
-            return false;
-        }
-    }
-
-    free(userInput);
-    userInput = NULL;
-    return true;
-}
