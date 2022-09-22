@@ -23,7 +23,7 @@
 
 /*** Definitions ***/
 #define CTRL_KEY(k) ((k) & 0x1f)
-#define MICHAEL_IDE_VER "0.9"
+#define MICHAEL_IDE_VER "1.0"
 
 enum editorKey {
     BACKSPACE = 127,
@@ -1057,12 +1057,14 @@ void processKeypress() {
         case F6_FUNCTION_KEY:
             if (G.currentMode == EDIT) {
                 // enter execute mode
-                resetBrainfuck(false, &G.B);
-                modeSwitcher(EXECUTE);
-                G.B.debugMode = CONTINUE;
-                globalRefreshScreen();
-                while (G.B.debugMode == CONTINUE) {
-                    processBrainFuck(&G.B);
+                if (editorLoopValidityCheck(&G.E)) {
+                    resetBrainfuck(false, &G.B);
+                    modeSwitcher(EXECUTE);
+                    G.B.debugMode = CONTINUE;
+                    globalRefreshScreen();
+                    while (G.B.debugMode == CONTINUE) {
+                        processBrainFuck(&G.B);
+                    }
                 }
             }
             else if (G.currentMode == DEBUG) {
@@ -1262,7 +1264,7 @@ void windowMoveCursor(int key, window* this){
 }
 
 void dataArrayMoveCursor(int key, window* this){ //this of this as virtual func of above
-    if (G.currentMode == TEXT_EDITOR || this->type != DATA_ARRAY) return;
+    if (this->type != DATA_ARRAY) return;
 
     switch (key) {
         case ARROW_UP:
@@ -1542,7 +1544,6 @@ void drawDataArray(struct abuf * ab){
     }
 }
 
- //I may be able to make all 3 window-drawing function one big functions, but there is no advantage
 void drawOutput(struct abuf * ab) {
     setGlobalCursor(ab, G.O.startPosX, G.O.startPosY);
     for (int y = -1; y < G.O.windowRows; y++){
@@ -1667,7 +1668,6 @@ void setGlobalCursor(struct abuf * ab, int x, int y) {
     abAppend(ab, buf, strlen(buf));
 }
 
-//"member" functions
 void globalInit() {
     resetBrainfuck(true, &G.B);
     windowReset(OUTPUT, &G.O);
@@ -1818,7 +1818,6 @@ bool resetBrainfuck(bool initializing, brainFuckModule* this){
     return true;
 }
 
-// need an inst window ptr
 void instForward() { //igores comments
     char nextChar = '\0';
     while (nextChar != '+' && nextChar != '-' && nextChar != '>' && nextChar != '<' &&
@@ -1847,7 +1846,6 @@ void instForward() { //igores comments
     }
 }
 
-// need a parent ptr
 void brainfuckDie(char* error, brainFuckModule* this) {
     this->debugMode = EXECUTION_ENDED;
     setStatusMessage("\x1b[7;31mError: %s\x1b[0m\x1b[7m", error);
@@ -1974,9 +1972,7 @@ void processBrainFuck(brainFuckModule* this) {
             else{
                 //skip till matching closing bracket
                 coordStack stackForSkippping;
-                // stackForSkippping.stackArray = NULL; // not a good soln. Best to seperate init and reset
                 coordStackInit(true, &stackForSkippping);
-                
                 //traverse inst till condition met
                 instForward();
                 bool skipping = true;
@@ -1988,7 +1984,7 @@ void processBrainFuck(brainFuckModule* this) {
                     }
                     if (this->instX >= G.E.row[this->instY].size) {
                         instForward();
-                        continue; // shouldn't happen, but I think this should continue instead of break;
+                        continue;
                     }
                     char curInst = G.E.row[this->instY].chars[this->instX];
 
