@@ -213,9 +213,9 @@ void updateWindowSizes();
 struct globalEnvironment G;
 
 int main(int argc, char* argv[]) {
-	enableRawMode();
+    enableRawMode();
     globalInit();
-    // editorOpen("DEMO/nestedLoopDemo.bf"); //for testing in VScode
+    // editorOpen("demo/mandelbrot.bf"); //for testing in VScode
     if (argc >= 2){ //command would be kilo fileName, kilo would be first argument
         editorOpen(argv[1]);
     }
@@ -1088,6 +1088,7 @@ void processKeypress() {
                     if (inALoop) {
                         int curStackSize = G.B.bracketStack.top;
                         G.B.debugMode = STEPPING_OUT;
+                        globalRefreshScreen();
                         while (G.B.debugMode == STEPPING_OUT && G.B.bracketStack.top != curStackSize - 1) {
                             processBrainFuck(&G.B);
                         }
@@ -1561,7 +1562,7 @@ void drawOutput(struct abuf * ab) {
                 char* lineToPrint = &G.O.row[outRow].render[G.O.startCol];
                 G.O.rx = windowCxToRx(&G.O.row[outRow], G.O.cx);
                 for (int j = 0; j < len; j++) {
-                    if (G.activeWindow != OUTPUT && outRow == G.O.cy && G.E.startCol + j == G.O.rx) {
+                    if (G.activeWindow != OUTPUT && outRow == G.O.cy && G.O.startCol + j == G.O.rx) {
                         abAppend(ab, "\x1b[7m", 4); // when cursor is be on top a char
                     }
                     abAppend(ab, &lineToPrint[j], 1);
@@ -1837,7 +1838,7 @@ void instForward() { //igores comments
         if (G.B.instX < nextRow->size) {
             nextChar = nextRow->chars[G.B.instX];
             if (nextChar == '#') {
-                G.B.instX = row->size;
+                G.B.instX = nextRow->size;
             }
         }
         else {
@@ -2060,7 +2061,7 @@ void processBrainFuck(brainFuckModule* this) {
     if (this->instY >= G.E.numRows) {
         G.E.cy = G.E.numRows;
     }
-    if (this->instX >= G.E.startCol + G.E.windowCols || this->instX < G.E.startCol) {
+    if (this->instX >= G.E.startCol + G.E.windowCols || this->instX <= G.E.startCol) {
         G.E.cx = this->instX;
     }
     
