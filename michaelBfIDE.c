@@ -1934,7 +1934,7 @@ void globalInit() {
 void selectSyntaxHighlight() {
     if (G.fileName == NULL) return;
 
-    if (strstr(G.fileName, ".bf")) {
+    if (strstr(G.fileName, ".bf") || strstr(G.fileName, ".b")) {
         G.highlightBF = true;
     }
 }

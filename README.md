@@ -5,7 +5,7 @@
  | \  / |_  ___| |__   __ _  ___| |/ ___  | |_) |_ __ __ _ _ _ __ | |_ _   _  ___| | __   | | | |  | | |__   
  | |\/| | |/ __| '_ \ / _` |/ _ \ | / __| |  _ <| '__/ _` | | '_ \|  _| | | |/ __| |/ /   | | | |  | |  __|  
  | |  | | | (__| | | | (_| |  __/ | \__ \ | |_) | | | (_| | | | | | | | |_| | (__|   <   _| |_| |__| | |____ 
- |_|  |_|_|\___|_| |_|\__,_|\___|_| |___/ |____/|_|  \__,_|_|_| |_|_|  \__,_|\___|_|\_\ |_____|_____/|______|                            
+ |_|  |_|_|\___|_| |_|\__,_|\___|_| |___/ |____/|_|  \__,_|_|_| |_|_|  \__,_|\___|_|\_\ |_____|_____/|______| (v1.0)
 </pre>                                                                                                        
                                                                                                          
 
@@ -24,8 +24,12 @@ Below you will find a basic user guide, screenshots, the full list of features, 
 
 P.S. If you have never heard of the esoteric langauge brainfuck, here is a quick video explaination: [Brainf**k in 100 Seconds](https://www.youtube.com/watch?v=hdHjjBS4cs8)
 
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+Screenshots & Basic Guide
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-List of Features
+Full List of Features
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 To be considered an IDE, a program needs to have at least 3 things integrated (* for complete, > for in progress):
 
@@ -74,49 +78,22 @@ To be considered an IDE, a program needs to have at least 3 things integrated (*
         * I also included a helper program I made for this project, rawInputViewer
         * As its name suggest, it lets you see the raw ASCII code and escape sequences your terminal recieves. Useful if you want to add your own special keys to the IDE. 
         * Ctrl + Q to quit, Ctrl + C to clear the screen
-        
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Screenshots
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-... to do
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Brianfuck Implementation Choices
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-- Array is currently made of the traditional 30000 8-bit unsigned integer cells, with plans to make the array dynamic
-- The choice of array cell type means you can only input numbers from 0 - 255. You can also input ASCII characters (excluding numbers and control characters). When doing so, characters after the first one will be culled. 
-- Note: ASCII table only goes from 0 - 127. Thus, if you attempt to output a cell with value 128 -255, you will be using the extended ASCII table, which is NOT standareid, and depend on your operating system settings / terminal choice. 
+- Cell size is 8-bit unsigned
+- Array is dynamic, with starting length and increase increment custimizable in config.h
+- ',' input operator accepts numbers (range form 0 - 255) or ASCII characters. Each ',' take ONE byte, and cull the rest of the input
+- '.' output operator only prints cells ranging 20 - 127 (i.e., ASCII, excluding control char). Additionally, 8 (or 127) for backspace, 9 for tab, 10 for new line
 
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-Implementation details (WIP)
------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-This section has no impact on using the program. However, if you are interested in a silly program like this, I'd wager you'd also be interested in how it was made.
-
-**Main Structure**
-The program's main function operate on a simple loop
-<pre>
-__>  Draw Screen (this is when updates happen)
-|           |
-|           V
-|    Process Keypress (either for typing, or changing the program's mode)
-|           |
-|___________|
-</pre>
-
-The interesting part is how each of the section operates. 
-
-**Drawing Screen**
-- Talk about raw mode and its adventages anad challenges
-- Talk about the object sctructure
-- Mention the guide
-
-**Processing Keypress**
-- Mention the different things that this part does
-- Talk about escape sequences
-
-**Processing Brainfuck**
-- The interesting operators are intput/output and loops (talk a bit about the stack used)
-
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+Config.h
+-----------------------------------------------------------------------------------------------------------------------------------------------------------
+This file includes some parameters that can be tweaked (text editor settings, brainfuck settings, window sizes).
+It *IS* a header file though, so you do need to be re-compile the program before the changes take effect.
+For non-programmers, that just means you need to enter **make** into your terminal before changes take effect.
+ 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Special thanks
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
