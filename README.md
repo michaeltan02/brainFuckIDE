@@ -31,53 +31,52 @@ Screenshots & Basic Guide
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Full List of Features
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
-To be considered an IDE, a program needs to have at least 3 things integrated (* for complete, > for in progress):
+**General**
+- Program starts in text editor mode. Ppress F5 or F6 to enter debug/execution mode (if or not to stop at breakpoints). Press F9 to go back to editor mode.
+- In debug/execution mode, the terminal will be split into 3 windows (editor, data array, output). 
+	- All three windows are independently-scrollable with arrow keys, home/end, page up/down
+	- Switch active window with Ctrl + W. Only active window (where your blinking cursor is) will be scrolled
+- Persistent status bar showing file names, line number, debugger mode, and cell number
+- Temporary status messages
+- The overall size of the program automatically updates when re-sizing terminal window. The relative size of the inner windows can be customized in config.h
 
-    1. Interpreter  ------------------------   COMPLETE
-        * Supports original the 8 operators for brainfuck, ignores all other characters
-        * Stops execution if user tries to go outside or memory array
-        * Display output in its own section, using a custom dynamic struct
-        * Displays changes to the memory array
-        * Highlights current instruction and data cell
-		* NOTE: Since this is an interpreter, I decided to go the extra mile and made sure to allow one to edit the code during run time.
-        
-    2. Debugger  --------------------------   COMPLETE
-  		* Enter debugger by pressing F5      
-		* Step-by-step execution with F6
-            *Automatically skip comments during execution
-        * Can use ? to set breakpoints. Continue to break point with F5
-        * Step out of loop with F7
-		* Restart with F8
-		* Quit to editor with F9
-        * Has warning for when >10000 times executed without a break. This is to compensate for the fact that there is no pause button
-        > Plan to add error checking for incomplete loop and stepping outside data array (will be called automatically before entering debug mode, can also be called via hotkey)
-        
-    3. Text editor  -----------------------   BASE COMPLTE, MORE QOL FEATURES PLANNED
-        * View/Edit text (includnig proper tab rendering)
-        * Navigate file with arrow keys, page up/down, home, end, ctrl + arrow keys (to skip words)
-        * Support vertical + horizontal scrolling
-        * Persistent status bar and temporary status messages
-        * Open file with ./michaelBfIDE <fiel name> (new file will be created if ran without file name argument)
-        * Save (Ctrl + S) files. Prompts the user to enter a name if saving a new file, complete with error checking for file name size >255
-        * Warning for quitting (Ctrl + Q) without saving
-        * Auto-complete brackets and quotation marks
-        * Supports window-reiszing
-        > Syntax highlighting based on file TYPE
-        > Searching
-        > Auto-indent
-        > Save-as for existing files
-        > Line number
-        
-    Integration  --------------------------   IN-PROGRESS
-        * User can now press F5 to enter debug mode. In debug mode, the terminal will be split into 3 windows (instructions, data array, output)
-        * When in debug mode. Press F5 to continue to breakpoint, F6 to step-into, F8 to quit to 
-        > Plan to let user Allow user to switch which window they want to scroll
-        > Plan to allowe the user to switch between displaying data array as numbers and as characters
-    
-    BONUS: raw input viewer ---------------   COMPLETE
-        * I also included a helper program I made for this project, rawInputViewer
-        * As its name suggest, it lets you see the raw ASCII code and escape sequences your terminal recieves. Useful if you want to add your own special keys to the IDE. 
-        * Ctrl + Q to quit, Ctrl + C to clear the screen
+**Text editor**
+- Open existing file with ./michaelBfIDE <fiel name> (new file will be created if ran without file name argument)
+- Save files with Ctrl + s
+	- Will prmopt user for file name with a status message (Esc to cancel)
+	- Quit confirmation for quitting without saving (custimizable)
+	- Alt-s to save file as different name
+	- Error-checking for invalid file name
+	- As a fail-safe for failed saving, saving first write to a temp file and rename it only if writing was successful
+- Navigate file with arrow keys, page up/down, home, end, ctrl + arrow keys (to skip words)
+
+
+- Brainfuck syntax highlighting based on file type (accepts .b and .bf)
+- Search with Ctrl + F (no case match by default, Alt + F for case match)
+- Auto-indent (toggleable)
+- Undo with Ctrl + Z (# of undo customizable)
+
+**Interpreter/Debugger**
+- Supports original the 8 operators for brainfuck
+- # for single-line comments
+- ? to set breakpoint
+
+
+- Contine execution with F5
+- Step-by-step execution with F6 (skips comment)
+- Step out of loop with F7
+- Restart with F8
+
+- Checks loop validity before entering debug/execution mode (toggleable)
+- Once in debug/execution mode, status bar now shows debugger mode and cell number
+- Fully supports run-time code edit
+- Auto request breakpoint when executed too long without break (amount customizable in config.h) 
+- Error messages for run-time error
+
+- If active window is editor, Ctrl + P to set next instruction to cursor location
+- If active window is data array, Ctrl + C to set value of selected cell
+- Ctrl + J to snap editor windows to next insqruction, data array window to current cell 
+
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 Brianfuck Implementation Choices
