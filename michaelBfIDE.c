@@ -1046,7 +1046,8 @@ char * stringToLowerCase(char * source) {
 bool editorLoopValidityCheck(window * this) { // this can maybe replace regenerate brainfuck stack? 
     coordinate returnCoord = {-1, -1};
     if (this->type != TEXT_EDITOR) return false;
-    
+    if (PERFORM_VALIDITY_CHECK == 0) return true;
+
     coordStack errorCheckStack;
     coordStackInit(true, &errorCheckStack);
 
@@ -1061,7 +1062,7 @@ bool editorLoopValidityCheck(window * this) { // this can maybe replace regenera
                     this->cx = j;
                     this->cy = i;
                     coordStackFree(&errorCheckStack);
-                    setStatusMessage("Cannot find opening bracket for {%d,%d}", j, i);
+                    setStatusMessage("\x1b[7;31mError: Cannot find opening bracket for {%d,%d}.\x1b[7m", j, i);
                     return false;
                 }
                 else {
@@ -1077,7 +1078,7 @@ bool editorLoopValidityCheck(window * this) { // this can maybe replace regenera
     if (!coordStackIsEmpty(&errorCheckStack)) {
         this->cx = coordStackTop(&errorCheckStack).x;
         this->cy = coordStackTop(&errorCheckStack).y;
-        setStatusMessage("Error: {%d,%d} has no closing bracket", this->cx, this->cy);
+        setStatusMessage("\x1b[7;31mError: {%d,%d} has no closing bracket.\x1b[7m", this->cx, this->cy);
         coordStackFree(&errorCheckStack);
         return false;
     }
@@ -1137,6 +1138,11 @@ void editorSave() {
             setStatusMessage("Save aborted");
             return;
         }
+        else if (strstr(G.fileName, "/")) {
+            setStatusMessage("\x1b[7;31mError: file name cannot contarin '/'. Save aborted\x1b[7m");
+            G.fileName = NULL;
+            return;
+        }
         selectSyntaxHighlight();
     }
 
@@ -1157,7 +1163,7 @@ void editorSave() {
                     return;
                 }
                 else {
-                    setStatusMessage("Save buffer cannot be renamed. Error code: %s", strerror(errno));
+                    setStatusMessage("\x1b[7;31mSave buffer cannot be renamed.\x1b[7m Error code: %s", strerror(errno));
                     return;
                 }
             }
@@ -1166,7 +1172,7 @@ void editorSave() {
     }
 
     free(buf);
-    setStatusMessage("Can't save! I/O errror: %s", strerror(errno));
+    setStatusMessage("\x1b[7;31mCan't save!\x1b[7m I/O errror: %s", strerror(errno));
 }
 
 /*** Global Input & Output ***/

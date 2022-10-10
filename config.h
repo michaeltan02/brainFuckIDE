@@ -10,10 +10,11 @@
 #define CANCEL_SEARCH_RESTORE_CURSOR 1 // if disabled, ESC will behave same as enter when searching
 
 // Brainfuck interpreter parameters
+#define PERFORM_VALIDITY_CHECK 1
 #define BREAK_POINT_REQUEST_THRESHOLD 4e+9 // brainfuck execution speed is ~5e+7 inst/s
 #define BRAINFUCK_ARRAY_START_SIZE 30000
 #define BRAINFUCK_ARRAY_INCREASE_INCREMENT 5000
 
 // Window sizes (just tweak eidtor window size, the other two updates accordingly)
-#define EDITOR_HEIGHT_IN_DEBUG_MODE 0.5 // fraction of full window height. must be <1
+#define EDITOR_HEIGHT_IN_DEBUG_MODE 0.6 // fraction of full window height. must be <1
 #define EDITOR_WIDTH_IN_DEBUG_MODE 0.5 // fraction of full window width. must be <1
