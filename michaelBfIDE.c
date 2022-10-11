@@ -221,7 +221,7 @@ int main(int argc, char* argv[]) {
         editorOpen(argv[1]);
     }
 
-    setStatusMessage("HELP: Ctrl-S = Save | Ctrl-Q = Quit | Ctrl-F = find | F5 = Debug | F6 = Execute");
+    setStatusMessage("F1 = Help | Ctrl-S = Save | Ctrl-Q = Quit | Ctrl-F = Find | Ctrl-Z = Undo | F5 = Debug");
 
     while (1) {
         globalRefreshScreen();
@@ -1385,6 +1385,13 @@ void processKeypress() {
             }
             break;
         case F1_FUNCTION_KEY:
+            if (G.currentMode == EDIT) {
+                setStatusMessage("HELP: Ctrl-S = Save | Ctrl-Q = Quit | Ctrl-F = Find | Ctrl-Z = Undo | F5 = Debug | F6 = Execute");
+            }
+            else {
+                setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop | Ctrl-N = Toggle | Ctrl-J = Snap | Ctrl-C = Set Cell | Ctrl-P = Set Inst");
+            }
+            break;
         case F2_FUNCTION_KEY:
         case F3_FUNCTION_KEY:
         case F4_FUNCTION_KEY:
@@ -1395,7 +1402,7 @@ void processKeypress() {
                 if (editorLoopValidityCheck(&G.E)) {
                     if (resetBrainfuck(false, &G.B)) {
                         modeSwitcher(DEBUG);
-                        setStatusMessage("HELP: F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop");
+                        setStatusMessage("F1 = Help | F5 = Continue | F6 = Step Into | F7 = Step Out | F8 = Restart | F9 = Stop | Ctrl-N = Toggle | Ctrl-J = Snap | Ctrl-C = Set Cell | Ctrl-P = Set Inst");
                     }
                     else {
                         setStatusMessage("Cannot allocate starting memory for brainfuck");
