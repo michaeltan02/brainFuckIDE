@@ -1779,7 +1779,7 @@ void drawBorder(struct abuf * ab){
 void drawDataArray(struct abuf * ab){
     setGlobalCursor(ab, G.dataArray.startPosX, G.dataArray.startPosY);
 
-    char buf[10];
+    char buf[15];
     
     int cellToHighlight = G.B.arrayIndex;
     int index = G.dataArray.startRow * G.dataArray.numCells;
@@ -1792,8 +1792,8 @@ void drawDataArray(struct abuf * ab){
 
             if (index < G.B.arraySize) {
                 if (G.showArraryAsChar) {
-                    if (G.B.dataArray[index] > 31 && G.B.dataArray[index] < 127) {
-                        if (G.B.dataArray[index] >= 48 && G.B.dataArray[index] <= 57)
+                    if (G.B.dataArray[index] > 31 && G.B.dataArray[index] < 127) { // non-control char
+                        if (G.B.dataArray[index] >= 48 && G.B.dataArray[index] <= 57) // number
                             snprintf(buf, sizeof(buf)," #%c|", G.B.dataArray[index]);
                         else {
                             snprintf(buf, sizeof(buf),"  %c|", G.B.dataArray[index]);
@@ -1808,8 +1808,8 @@ void drawDataArray(struct abuf * ab){
                     else if (G.B.dataArray[index] == 9) {
                         snprintf(buf, sizeof(buf)," \\t|");
                     }
-                    else {
-                        snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[index]);
+                    else { // make control chars show up as dimmed numbers
+                        snprintf(buf, sizeof(buf),"\x1b[2m%3d\x1b[m|", G.B.dataArray[index]);
                     }
                 }
                 else {

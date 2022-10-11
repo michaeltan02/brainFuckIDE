@@ -45,7 +45,7 @@ That should be enough to get you started. In the meantime, here is a demo the ma
 - Note: various parameters of the program can be configured with **config.h**. See below.
 - Program starts in text editor mode. Ppress **F5/F6** to enter debug/execution mode (if or not to stop at breakpoints). Press F9 to go back to editor mode.
 - In debug/execution mode, the terminal will be split into **3 windows** (editor, data array, output)
-	- Editor and data array window will have next inst and current cell **highlighted**. Note that this is seperate from the blinking cursor of the terminal
+	- Editor and data array window will have next inst and current cell **highlighted** in yellow. Note that this is seperate from the blinking cursor of the terminal
 	- All three windows are independently-**scrollable** with arrow keys, home/end, page up/down
 	- Executing brainfuck code will automatically scroll windows if needed
 	- Switch active window with **Ctrl + W**. Only active window (where your blinking cursor is) will be scrolled
