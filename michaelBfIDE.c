@@ -190,6 +190,7 @@ struct globalEnvironment {
     undoStack editorUndoStack;
 
     bool highlightBF;
+    bool showArraryAsChar;
     bool caseMatchSearch;
 };
 
@@ -1292,6 +1293,11 @@ void processKeypress() {
                 editorFind();
             }
             break;
+        case CTRL_KEY('n'):
+            if (G.currentMode != EDIT) {
+                G.showArraryAsChar = G.showArraryAsChar ? 0 : 1;
+            }
+            break;
         case PAGE_UP:
         case PAGE_DOWN: 
             {
@@ -1740,7 +1746,7 @@ void drawEditor(struct abuf * ab) {
                     }
                 }
                 if (G.currentMode == DEBUG && fileRow == G.B.instY && rxOfInst == G.E.startCol + j) {
-                    abAppend(ab, "\x1b[7m", 4);
+                    abAppend(ab, "\x1b[7;33m", 7);
                 }
                 abAppend(ab, &lineToPrint[j], 1);
                 abAppend(ab, "\x1b[0m", 4);
@@ -1774,11 +1780,34 @@ void drawDataArray(struct abuf * ab){
     for(int i = 0; i < G.dataArray.windowRows; i++) {
         for (int j = 0; j < G.dataArray.numCells; j++) {
             if (index == cellToHighlight) {
-                abAppend(ab, "\x1b[7m", 4);
+                abAppend(ab, "\x1b[7;33m", 7);
             }
 
             if (index < G.B.arraySize) {
-                snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[index]);
+                if (G.showArraryAsChar) {
+                    if (G.B.dataArray[index] > 31 && G.B.dataArray[index] < 127) {
+                        if (G.B.dataArray[index] >= 48 && G.B.dataArray[index] <= 57)
+                            snprintf(buf, sizeof(buf)," #%c|", G.B.dataArray[index]);
+                        else {
+                            snprintf(buf, sizeof(buf),"  %c|", G.B.dataArray[index]);
+                        }
+                    }
+                    else if (G.B.dataArray[index] == 10) {
+                        snprintf(buf, sizeof(buf)," \\n|");
+                    }
+                    else if (G.B.dataArray[index] == 8 || G.B.dataArray[index] == 127) {
+                        snprintf(buf, sizeof(buf)," BS|");
+                    }
+                    else if (G.B.dataArray[index] == 9) {
+                        snprintf(buf, sizeof(buf)," \\t|");
+                    }
+                    else {
+                        snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[index]);
+                    }
+                }
+                else {
+                    snprintf(buf, sizeof(buf),"%3d|", G.B.dataArray[index]);
+                }
             }
             else {
                 snprintf(buf, sizeof(buf),"   |");
@@ -1934,6 +1963,7 @@ void globalInit() {
     undoStackInit(&(G.editorUndoStack));
 
     G.highlightBF = false;
+    G.showArraryAsChar = false;
     G.caseMatchSearch = false;
 }
 
