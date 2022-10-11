@@ -39,11 +39,12 @@ P.S. If you have never heard of the esoteric langauge brainfuck, here is a quick
 	- All three windows are independently-**scrollable** with arrow keys, home/end, page up/down
 	- Executing brainfuck code will automatically scroll windows if needed
 	- Switch active window with **Ctrl + W**. Only active window (where your blinking cursor is) will be scrolled
-	- **Ctrl + N** to toggle wheather data array window shows numbers or corresponding ASCII character
+	- **Ctrl + N** to toggle number view and character view for data array window
 - Persistent **status bar** showing file names, line number, debugger mode, and cell number
 - Temporary **status messages** for help messages, input prompts, brainfuck run-time errors, etc
 - The overall size of the program automatically updates when re-sizing terminal window. The relative size of the inner windows can be customized in config.h
 - **Ctrl + Q** to quit. Includes quit confirmation for quitting without saving (custimizable)
+- **F1** to view full key bind 
 
 ### Text editor
 - Open existing file with ./michaelBfIDE <fiel name> (new file will be created if ran without file name argument)
