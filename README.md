@@ -26,7 +26,18 @@ P.S. If you have never heard of the esoteric langauge brainfuck, here is a quick
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
 ## Screenshots & Basic Guide
 
+The program starts in **text editor mode**. You can open existing files with ./michaelBfIDE fileName. In this mode, you can do everything you would expect from a basic text editor (edit test, scroll, save, search, undo, syntax highlight, etc).
+In the following screenshots, I opened the mandelbrot.bf program included in the demo directory. ![image](https://user-images.githubusercontent.com/105987119/194977384-9dec9d04-6cb0-4c83-9174-7e005909da02.png)
 
+To start executing your brainfuck code, press F5/F6 to enter **debug or execution mode** (pictured below). You will notice that the terminal has been split into 3 sub-windows, editor, brainfuck memory array, and output of '.' operator. All of these windows are indepently-scrollable, you just have to press Ctrl + W to switch you cursor to the desired window. 
+![image](https://user-images.githubusercontent.com/105987119/194977798-410d1ea5-4ea7-4666-9922-4a8b2af63551.png)
+
+In debug mode, you of course have access to all the typical debug features, continue to breakpoint, step into, step out of loop, resetart, and stop. There are also some additional debugging feature you can read about in the list below. you can also press F1 to see the full key bind at any time!
+
+That should be enough to get you started. In the meantime, here is a demo the mandelbrot brainfuck code running:
+![mandelbrot](https://user-images.githubusercontent.com/105987119/194978166-b12b6527-0a15-484c-b13f-31257fa6d3c1.png)
+
+  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------
 ## Full List of Features
 
